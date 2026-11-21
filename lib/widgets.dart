@@ -44,13 +44,13 @@ Future<void> addFolderFlow(BuildContext c) async {
 }
 
 /// 16:9 picture with optional progress bar and badge.
-class Thumb extends StatelessWidget {
+class ArtThumb extends StatelessWidget {
   final Item? item;
   final String? artPath;
   final double progress;
   final bool watched;
   final int badge;
-  const Thumb({
+  const ArtThumb({
     super.key,
     this.item,
     this.artPath,
@@ -154,7 +154,7 @@ class MediaCard extends StatelessWidget {
       onLongPress: onLong,
       borderRadius: BorderRadius.circular(10),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Thumb(
+        ArtThumb(
           item: artItem, artPath: artPath, progress: progress,
           watched: watched, badge: badge,
         ),

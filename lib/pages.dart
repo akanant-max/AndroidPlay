@@ -365,7 +365,7 @@ class _ShowPageState extends State<ShowPage> {
         child: Row(children: [
           SizedBox(
             width: 140,
-            child: Thumb(
+            child: ArtThumb(
               item: e,
               progress: inProg ? pr!.frac : 0,
             ),
