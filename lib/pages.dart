@@ -69,6 +69,16 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final notice = store.crashNotice;
+    if (notice != null) {
+      store.crashNotice = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(notice),
+          duration: const Duration(seconds: 8),
+        ));
+      });
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('Reel'),

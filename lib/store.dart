@@ -107,7 +107,10 @@ class Store extends ChangeNotifier {
       landscape = true,
       autoSkipIntro = false,
       autoPip = true,
-      subBox = false;
+      subBox = false,
+      libassOn = true;
+  int crashes = 0;
+  String? crashNotice;
   int seekStep = 10, nextBeforeEnd = 60, gridSize = 1, movieSort = 0, showSort = 0;
   double volume = 100, subScale = 1.0, defaultSpeed = 1.0;
 
@@ -153,6 +156,8 @@ class Store extends ChangeNotifier {
         autoSkipIntro = g('autoSkipIntro', autoSkipIntro);
         autoPip = g('autoPip', autoPip);
         subBox = g('subBox', subBox);
+        libassOn = g('libassOn', libassOn);
+        crashes = g('crashes', crashes);
         seekStep = g('seekStep', seekStep);
         nextBeforeEnd = g('nextBeforeEnd', nextBeforeEnd);
         gridSize = g('gridSize', gridSize);
@@ -164,6 +169,54 @@ class Store extends ChangeNotifier {
       }
     } catch (_) {}
     _index();
+    _checkCrashMarker();
+  }
+
+  // ---------------------------------------------------------- crash guard
+  File get _marker => File(p.join(dir, 'player_open.flag'));
+  File get errorLog => File(p.join(dir, 'errors.log'));
+
+  /// The marker exists only while the player is starting. If it is still
+  /// there at launch, the player crashed: fall back to safer settings.
+  void _checkCrashMarker() {
+    try {
+      if (!_marker.existsSync()) return;
+      _marker.deleteSync();
+      crashes++;
+      if (libassOn) {
+        libassOn = false;
+        crashNotice = 'The player closed unexpectedly last time, so Reel switched to simple subtitles. '
+            'You can turn the full subtitle renderer back on in Settings.';
+      } else if (hwdec != 'mediacodec-copy' && hwdec != 'no') {
+        hwdec = 'mediacodec-copy';
+        crashNotice = 'The player closed unexpectedly again, so Reel switched hardware decoding to '
+            '"MediaCodec copy". You can change it in Settings.';
+      } else {
+        crashNotice = 'The player closed unexpectedly again. Settings → Error log may show why.';
+      }
+      logError('Player crashed during start (crash #$crashes)');
+      flush();
+    } catch (_) {}
+  }
+
+  void playerStarting() {
+    try {
+      _marker.writeAsStringSync(DateTime.now().toIso8601String());
+    } catch (_) {}
+  }
+
+  void playerStarted() {
+    try {
+      if (_marker.existsSync()) _marker.deleteSync();
+    } catch (_) {}
+  }
+
+  void logError(String text) {
+    try {
+      final f = errorLog;
+      if (f.existsSync() && f.lengthSync() > 60000) f.deleteSync();
+      f.writeAsStringSync('[${DateTime.now().toIso8601String()}] $text\n\n', mode: FileMode.append);
+    } catch (_) {}
   }
 
   void _index() {
@@ -186,6 +239,7 @@ class Store extends ChangeNotifier {
           'fastScrub': fastScrub, 'autoNext': autoNext, 'thumbsOn': thumbsOn,
           'scanOnStart': scanOnStart, 'resume': resume, 'landscape': landscape,
           'autoSkipIntro': autoSkipIntro, 'autoPip': autoPip, 'subBox': subBox,
+          'libassOn': libassOn, 'crashes': crashes,
           'seekStep': seekStep, 'nextBeforeEnd': nextBeforeEnd,
           'gridSize': gridSize, 'movieSort': movieSort, 'showSort': showSort,
           'volume': volume, 'subScale': subScale, 'defaultSpeed': defaultSpeed,

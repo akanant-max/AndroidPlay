@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'store.dart';
 import 'thumbs.dart';
@@ -74,6 +75,8 @@ class SettingsPage extends StatelessWidget {
                 onChanged: (v) => store.update(() => store.subScale = v),
               ),
             ),
+            sw('Full subtitle renderer (libass)', store.libassOn, (v) => store.libassOn = v,
+                sub: 'Keeps styled anime subtitles and Blu-ray picture subtitles. Turn off if the player crashes.'),
             sw('Subtitle background box', store.subBox, (v) => store.subBox = v,
                 sub: 'Dark box behind text instead of an outline'),
             ListTile(
@@ -116,6 +119,48 @@ class SettingsPage extends StatelessWidget {
                 title: Text('Unhide ${store.hidden.length} hidden videos'),
                 onTap: store.unhideAll,
               ),
+            ListTile(
+              leading: const Icon(Icons.bug_report_outlined),
+              title: const Text('Error log'),
+              subtitle: const Text('Copy this and send it if something breaks'),
+              onTap: () {
+                var text = '';
+                try {
+                  text = store.errorLog.existsSync() ? store.errorLog.readAsStringSync() : '';
+                } catch (_) {}
+                if (text.isEmpty) text = 'No errors logged.';
+                showDialog<void>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Error log'),
+                    content: SizedBox(
+                      width: 500,
+                      child: SingleChildScrollView(
+                        child: SelectableText(text, style: const TextStyle(fontSize: 11)),
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () {
+                          try {
+                            store.errorLog.deleteSync();
+                          } catch (_) {}
+                          Navigator.pop(ctx);
+                        },
+                        child: const Text('Clear'),
+                      ),
+                      FilledButton(
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: text));
+                          Navigator.pop(ctx);
+                        },
+                        child: const Text('Copy'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
             head('Player gestures'),
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 4, 16, 32),

@@ -64,9 +64,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   late final Player player = Player(
     configuration: PlayerConfiguration(
       bufferSize: 64 * 1024 * 1024,
-      libass: true,
-      libassAndroidFont: 'assets/subfont.ttf',
-      libassAndroidFontName: 'Noto Sans',
+      libass: store.libassOn,
+      libassAndroidFont: store.libassOn ? 'assets/subfont.ttf' : null,
+      libassAndroidFontName: store.libassOn ? 'DejaVu Sans' : null,
     ),
   );
   late final VideoController video = VideoController(
@@ -134,6 +134,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     idx = widget.index;
+    store.playerStarting();
     landscapeLock = store.landscape;
     thumbs.paused = true;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -168,7 +169,10 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         _ss(() {});
       }),
       player.stream.track.listen((_) => _ss(() {})),
-      player.stream.error.listen((e) => _flash('Error: $e', ms: 4000)),
+      player.stream.error.listen((e) {
+        store.logError('mpv: $e');
+        _flash('Error: $e', ms: 4000);
+      }),
     ]);
 
     saveT = Timer.periodic(const Duration(seconds: 5), (_) => _save());
@@ -193,6 +197,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    store.playerStarted();
     _save();
     store.volume = _vol;
     store.flush();
@@ -428,6 +433,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     if (gen != _gen || !mounted) return;
     _ready = true;
     _ss(() {});
+    Future<void>.delayed(const Duration(seconds: 3), store.playerStarted);
     await _loadChapters();
   }
 
@@ -965,6 +971,19 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
           _row(sleepMin == 0 ? 'Sleep timer' : 'Sleep timer: $sleepMin min',
               icon: Icons.bedtime_outlined, onTap: () => _openPanel(_P.sleep)),
           _row('Mark intro & credits', icon: Icons.fast_forward_outlined, onTap: () => _openPanel(_P.marks)),
+          if (_w < 600) ...[
+            _row(landscapeLock ? 'Auto-rotate' : 'Lock to landscape', icon: Icons.screen_rotation, onTap: () {
+              _ss(() => landscapeLock = !landscapeLock);
+              _applyOrientation();
+            }),
+            _row('Lock controls', icon: Icons.lock_outline, onTap: () {
+              _ss(() {
+                locked = true;
+                panel = null;
+              });
+              _poke();
+            }),
+          ],
           _row('Picture in picture', icon: Icons.picture_in_picture_alt_outlined, onTap: () {
             _closePanel();
             Native.enterPip();
@@ -1032,7 +1051,25 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       fit: fit,
       aspectRatio: aspect,
       fill: Colors.black,
-      subtitleViewConfiguration: const SubtitleViewConfiguration(visible: false),
+      subtitleViewConfiguration: store.libassOn
+          ? const SubtitleViewConfiguration(visible: false)
+          : SubtitleViewConfiguration(
+              style: TextStyle(
+                fontSize: 24 * store.subScale,
+                height: 1.3,
+                color: Colors.white,
+                fontWeight: FontWeight.w500,
+                backgroundColor: store.subBox ? const Color(0xA0000000) : null,
+                shadows: store.subBox
+                    ? null
+                    : const [
+                        Shadow(blurRadius: 2, color: Colors.black),
+                        Shadow(blurRadius: 6, color: Colors.black87),
+                      ],
+              ),
+              textAlign: TextAlign.center,
+              padding: EdgeInsets.fromLTRB(32, 0, 32, 24 + (100 - subPos) * 2),
+            ),
     );
     return ValueListenableBuilder<bool>(
       valueListenable: Native.pip,
@@ -1183,13 +1220,58 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     const white = Colors.white;
     final it = _item;
     final multi = widget.queue.length > 1;
+    final wide = _w >= 600;
     Widget ib(IconData i, VoidCallback? f, {String? tip, bool active = false}) => IconButton(
           tooltip: tip,
+          visualDensity: VisualDensity.compact,
           icon: Icon(i, color: f == null ? Colors.white24 : (active ? Theme.of(context).colorScheme.primary : white)),
           onPressed: f,
         );
+    void cycleFit() {
+      final order = [BoxFit.contain, BoxFit.cover, BoxFit.fill];
+      final n = order[(order.indexOf(fit) + 1) % order.length];
+      _ss(() => fit = n);
+      _flash(n == BoxFit.contain ? 'Fit' : (n == BoxFit.cover ? 'Fill' : 'Stretch'));
+    }
+
+    void rotate() {
+      _ss(() => landscapeLock = !landscapeLock);
+      _applyOrientation();
+      _flash(landscapeLock ? 'Landscape' : 'Auto-rotate');
+    }
+
+    void lock() {
+      _ss(() {
+        locked = true;
+        panel = null;
+      });
+      _poke();
+    }
+
+    final tools = <Widget>[
+      if (chapters.isNotEmpty)
+        ib(Icons.bookmarks_outlined, () => _openPanel(_P.chapters), tip: 'Chapters', active: panel == _P.chapters),
+      ib(Icons.subtitles_outlined, () => _openPanel(_P.subs), tip: 'Subtitles', active: panel == _P.subs),
+      ib(Icons.audiotrack_outlined, () => _openPanel(_P.audio), tip: 'Audio', active: panel == _P.audio),
+      TextButton(
+        style: TextButton.styleFrom(minimumSize: const Size(44, 40), padding: const EdgeInsets.symmetric(horizontal: 6)),
+        onPressed: () => _openPanel(_P.speed),
+        child: Text('$rate×',
+            style: TextStyle(
+                color: panel == _P.speed ? Theme.of(context).colorScheme.primary : white,
+                fontWeight: FontWeight.w700)),
+      ),
+      if (wide) ...[
+        ib(fit == BoxFit.contain ? Icons.fit_screen_outlined : (fit == BoxFit.cover ? Icons.zoom_out_map : Icons.aspect_ratio),
+            cycleFit, tip: 'Zoom'),
+        ib(landscapeLock ? Icons.screen_lock_landscape : Icons.screen_rotation, rotate, tip: 'Rotation'),
+        ib(Icons.picture_in_picture_alt_outlined, () => Native.enterPip(), tip: 'Picture in picture'),
+        ib(Icons.lock_open, lock, tip: 'Lock'),
+      ],
+      ib(Icons.more_vert, () => _openPanel(_P.more), tip: 'More', active: panel == _P.more),
+    ];
     return Stack(children: [
-      // top bar
+      // top bar: title with all tools beside it
       Align(
         alignment: Alignment.topCenter,
         child: Container(
@@ -1228,25 +1310,13 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                     ),
                   ]),
                 ),
-                if (chapters.isNotEmpty)
-                  ib(Icons.bookmarks_outlined, () => _openPanel(_P.chapters),
-                      tip: 'Chapters', active: panel == _P.chapters),
-                ib(Icons.subtitles_outlined, () => _openPanel(_P.subs), tip: 'Subtitles', active: panel == _P.subs),
-                ib(Icons.audiotrack_outlined, () => _openPanel(_P.audio), tip: 'Audio', active: panel == _P.audio),
-                TextButton(
-                  onPressed: () => _openPanel(_P.speed),
-                  child: Text('$rate×',
-                      style: TextStyle(
-                          color: panel == _P.speed ? Theme.of(context).colorScheme.primary : white,
-                          fontWeight: FontWeight.w700)),
-                ),
-                ib(Icons.more_vert, () => _openPanel(_P.more), tip: 'More', active: panel == _P.more),
+                ...tools,
               ]),
             ),
           ),
         ),
       ),
-      // bottom bar
+      // bottom bar: seek bar and playback buttons only
       Align(
         alignment: Alignment.bottomCenter,
         child: Container(
@@ -1288,22 +1358,16 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                     ]);
                   },
                 ),
-                Row(children: [
-                  ib(Icons.lock_open, () {
-                    _ss(() {
-                      locked = true;
-                      panel = null;
-                    });
-                    _poke();
-                  }, tip: 'Lock'),
-                  const Spacer(),
-                  ib(Icons.skip_previous, multi && idx > 0
-                      ? () {
-                          _save();
-                          _open(idx - 1);
-                        }
-                      : null),
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  if (multi)
+                    ib(Icons.skip_previous, idx > 0
+                        ? () {
+                            _save();
+                            _open(idx - 1);
+                          }
+                        : null),
                   ib(Icons.fast_rewind, () => _seekBy(-store.seekStep)),
+                  const SizedBox(width: 8),
                   IconButton.filled(
                     iconSize: 34,
                     icon: Icon(playing ? Icons.pause : Icons.play_arrow),
@@ -1312,29 +1376,15 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                       _poke();
                     },
                   ),
+                  const SizedBox(width: 8),
                   ib(Icons.fast_forward, () => _seekBy(store.seekStep)),
-                  ib(Icons.skip_next, _hasNext
-                      ? () {
-                          _save();
-                          _open(idx + 1);
-                        }
-                      : null),
-                  const Spacer(),
-                  ib(Icons.picture_in_picture_alt_outlined, () => Native.enterPip(), tip: 'Picture in picture'),
-                  ib(
-                      fit == BoxFit.contain
-                          ? Icons.fit_screen_outlined
-                          : (fit == BoxFit.cover ? Icons.zoom_out_map : Icons.aspect_ratio), () {
-                    final order = [BoxFit.contain, BoxFit.cover, BoxFit.fill];
-                    final n = order[(order.indexOf(fit) + 1) % order.length];
-                    _ss(() => fit = n);
-                    _flash(n == BoxFit.contain ? 'Fit' : (n == BoxFit.cover ? 'Fill' : 'Stretch'));
-                  }, tip: 'Zoom'),
-                  ib(landscapeLock ? Icons.screen_lock_landscape : Icons.screen_rotation, () {
-                    _ss(() => landscapeLock = !landscapeLock);
-                    _applyOrientation();
-                    _flash(landscapeLock ? 'Landscape' : 'Auto-rotate');
-                  }, tip: 'Rotation'),
+                  if (multi)
+                    ib(Icons.skip_next, _hasNext
+                        ? () {
+                            _save();
+                            _open(idx + 1);
+                          }
+                        : null),
                 ]),
               ]),
             ),

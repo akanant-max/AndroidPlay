@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
@@ -17,6 +18,14 @@ Future<void> main() async {
   MediaKit.ensureInitialized();
   Native.init();
   await store.load();
+  FlutterError.onError = (d) {
+    store.logError('${d.exceptionAsString()}\n${d.stack}');
+    FlutterError.presentError(d);
+  };
+  PlatformDispatcher.instance.onError = (e, s) {
+    store.logError('$e\n$s');
+    return true;
+  };
   runApp(const ReelApp());
   if (store.scanOnStart) unawaited(store.rescan());
   Native.opens.stream.listen(openExternal);
