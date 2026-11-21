@@ -333,6 +333,16 @@ class _LibraryPageState extends State<LibraryPage> {
                         },
                       ),
                       IconButton(
+                        tooltip: 'Watched / unwatched',
+                        icon: const Icon(Icons.check_circle_outline),
+                        onPressed: () {
+                          final ps = _selPaths();
+                          final allDone = ps.every((x) => store.prog(x)?.watched == true);
+                          store.markMany(ps, !allDone);
+                          setState(sel.clear);
+                        },
+                      ),
+                      IconButton(
                         tooltip: 'More',
                         icon: const Icon(Icons.more_vert),
                         onPressed: () => bulkSheet(context, _selPaths(), done: () => setState(sel.clear)),

@@ -80,6 +80,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   final osdN = ValueNotifier<String?>(null);
   final ui = ValueNotifier<bool>(true);
   final skipN = ValueNotifier<_Skip?>(null);
+  final clockN = ValueNotifier<String>(_clock(DateTime.now()));
+  Timer? clockT;
 
   Duration dur = Duration.zero;
   bool playing = false,
@@ -170,6 +172,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     ]);
 
     saveT = Timer.periodic(const Duration(seconds: 5), (_) => _save());
+    clockT = Timer.periodic(const Duration(seconds: 15), (_) => clockN.value = _clock(DateTime.now()));
     _start();
   }
 
@@ -197,7 +200,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     for (final s in subs) {
       s.cancel();
     }
-    for (final t in [hideT, saveT, osdT, sleepT, _tgtT, _pendingTap]) {
+    for (final t in [hideT, saveT, osdT, sleepT, _tgtT, _pendingTap, clockT]) {
       t?.cancel();
     }
     Native.setAutoPip(false, 16 / 9);
@@ -412,6 +415,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     } catch (_) {}
     if (gen != _gen || !mounted) return;
     dur = player.state.duration;
+    store.setDur(it.path, dur.inMilliseconds);
     await player.setRate(rate);
     if (start != null) {
       await Future<void>.delayed(const Duration(milliseconds: 250));
@@ -1086,6 +1090,27 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
+                ),
+                // faint clock, only while the controls are hidden
+                ValueListenableBuilder<bool>(
+                  valueListenable: ui,
+                  builder: (_, on, __) => on
+                      ? const SizedBox.shrink()
+                      : Positioned(
+                          top: _pad.top + 6,
+                          right: _pad.right + 14,
+                          child: IgnorePointer(
+                            child: ValueListenableBuilder<String>(
+                              valueListenable: clockN,
+                              builder: (_, t, __) => Text(t,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.white.withOpacity(0.35),
+                                    fontWeight: FontWeight.w500,
+                                  )),
+                            ),
+                          ),
+                        ),
                 ),
                 _skipButton(),
                 _panel(),

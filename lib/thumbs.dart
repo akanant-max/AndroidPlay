@@ -96,7 +96,8 @@ class Thumbs extends ChangeNotifier {
 
   void want(Item i) {
     final k = _key(i);
-    if (_ready.contains(k) || _failed.contains(k) || _queued.contains(k)) return;
+    if (_failed.contains(k) || _queued.contains(k)) return;
+    if (_ready.contains(k) && store.durOf(i.path) != null) return;
     _queued.add(k);
     _q.add(i);
     _pump();
@@ -142,7 +143,11 @@ class Thumbs extends ChangeNotifier {
         }
         final it = _q.removeAt(0);
         final k = _key(it);
-        if (_ready.contains(k) || !File(it.path).existsSync()) continue;
+        if (!File(it.path).existsSync()) continue;
+        if (_ready.contains(k)) {
+          if (store.durOf(it.path) == null) await _probe(it);
+          continue;
+        }
         final ok = await _make(it);
         if (ok) {
           _ready.add(k);
@@ -154,6 +159,26 @@ class Thumbs extends ChangeNotifier {
       }
     } finally {
       _running = false;
+    }
+  }
+
+  /// Reads only the length of a video (no picture), for the length badge.
+  Future<void> _probe(Item it) async {
+    Player? pl;
+    try {
+      pl = Player(configuration: PlayerConfiguration(bufferSize: 4 * 1024 * 1024));
+      await pl.setVolume(0);
+      await pl.open(Media(it.path), play: false);
+      final d = await pl.stream.duration
+          .firstWhere((d) => d > Duration.zero)
+          .timeout(const Duration(seconds: 8));
+      store.setDur(it.path, d.inMilliseconds);
+      notifyListeners();
+    } catch (_) {
+    } finally {
+      try {
+        await pl?.dispose();
+      } catch (_) {}
     }
   }
 
@@ -170,6 +195,7 @@ class Thumbs extends ChangeNotifier {
           .firstWhere((d) => d > Duration.zero)
           .timeout(const Duration(seconds: 12));
       final ms = pl.state.duration.inMilliseconds;
+      store.setDur(it.path, ms);
       await pl.seek(Duration(milliseconds: (ms * 0.12).round()));
       try {
         await vc.waitUntilFirstFrameRendered

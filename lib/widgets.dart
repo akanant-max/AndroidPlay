@@ -113,6 +113,22 @@ class ArtThumb extends StatelessWidget {
                   gaplessPlayback: true,
                   errorBuilder: (_, __, ___) => placeholder,
                 ),
+              if (icon == null && item != null && store.durOf(item!.path) != null)
+                Positioned(
+                  right: 5,
+                  bottom: watch == Watch.partial ? 8 : 5,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.7),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      fmt(Duration(milliseconds: store.durOf(item!.path)!)),
+                      style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
               if (icon == null && watch == Watch.fresh)
                 Positioned(
                   top: 0, right: 0,
@@ -461,6 +477,39 @@ Future<String?> pickCollection(BuildContext c, {String title = 'Add to folder', 
   );
 }
 
+/// Asks, then deletes the files from the phone.
+Future<bool> confirmDelete(BuildContext c, List<String> paths) async {
+  final ok = await showDialog<bool>(
+    context: c,
+    builder: (ctx) => AlertDialog(
+      title: Text(paths.length == 1 ? 'Delete this video?' : 'Delete ${paths.length} videos?'),
+      content: Text(
+        paths.length == 1
+            ? '${p.basename(paths.first)}\n\nThe file will be removed from your phone. This cannot be undone.'
+            : 'The files will be removed from your phone. This cannot be undone.',
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Delete'),
+        ),
+      ],
+    ),
+  );
+  if (ok != true) return false;
+  final failed = store.deleteFiles(paths);
+  if (c.mounted) {
+    ScaffoldMessenger.of(c).showSnackBar(SnackBar(
+      content: Text(failed == 0
+          ? 'Deleted ${paths.length} video${paths.length == 1 ? '' : 's'}'
+          : 'Could not delete $failed file${failed == 1 ? '' : 's'}'),
+    ));
+  }
+  return true;
+}
+
 /// Bulk actions on a set of video paths.
 Future<void> bulkSheet(BuildContext c, List<String> paths, {String? inColl, VoidCallback? done}) {
   return showModalBottomSheet(
@@ -531,6 +580,14 @@ Future<void> bulkSheet(BuildContext c, List<String> paths, {String? inColl, Void
             done?.call();
           },
         ),
+        ListTile(
+          leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+          title: const Text('Delete from phone', style: TextStyle(color: Colors.redAccent)),
+          onTap: () async {
+            Navigator.pop(ctx);
+            if (await confirmDelete(c, paths)) done?.call();
+          },
+        ),
       ]),
     ),
   );
@@ -599,6 +656,14 @@ Future<void> itemSheet(BuildContext c, Item i) {
             onTap: () {
               store.hide([i.path]);
               Navigator.pop(ctx);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+            title: const Text('Delete from phone', style: TextStyle(color: Colors.redAccent)),
+            onTap: () {
+              Navigator.pop(ctx);
+              confirmDelete(c, [i.path]);
             },
           ),
         ]),

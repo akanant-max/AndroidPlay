@@ -94,6 +94,7 @@ class Store extends ChangeNotifier {
   final Set<String> hidden = {};
   final Map<String, ShowMarks> marks = {};
   final Map<String, TrackPref> trackPrefs = {};
+  final Map<String, int> durs = {};
   bool scanning = false;
 
   // settings
@@ -132,6 +133,8 @@ class Store extends ChangeNotifier {
         colls.addAll([for (final c in (j['colls'] as List? ?? [])) Coll.fromJson(c as Map)]);
         ((j['marks'] as Map?) ?? {})
             .forEach((k, v) => marks[k as String] = ShowMarks.fromJson(v as Map));
+        ((j['durs'] as Map?) ?? {})
+            .forEach((k, v) => durs[k as String] = (v as num).toInt());
         ((j['tracks'] as Map?) ?? {})
             .forEach((k, v) => trackPrefs[k as String] = TrackPref.fromJson(v as Map));
         final s = (j['settings'] as Map?) ?? {};
@@ -177,6 +180,7 @@ class Store extends ChangeNotifier {
         'colls': [for (final c in colls) c.toJson()],
         'marks': {for (final e in marks.entries) e.key: e.value.toJson()},
         'tracks': {for (final e in trackPrefs.entries) e.key: e.value.toJson()},
+        'durs': durs,
         'settings': {
           'hwdec': hwdec, 'layout': layout, 'alang': alang, 'slang': slang,
           'fastScrub': fastScrub, 'autoNext': autoNext, 'thumbsOn': thumbsOn,
@@ -242,6 +246,39 @@ class Store extends ChangeNotifier {
   void resetProg(String path) {
     progress.remove(path);
     touch();
+  }
+
+  int? durOf(String path) => durs[path];
+
+  void setDur(String path, int ms) {
+    if (ms <= 0 || durs[path] == ms) return;
+    durs[path] = ms;
+    _dirty();
+  }
+
+  /// Deletes the video files from the phone. Returns how many failed.
+  int deleteFiles(Iterable<String> paths) {
+    var failed = 0;
+    for (final x in paths.toList()) {
+      try {
+        final f = File(x);
+        if (f.existsSync()) f.deleteSync();
+      } catch (_) {
+        failed++;
+        continue;
+      }
+      items.removeWhere((i) => i.path == x);
+      files.remove(x);
+      progress.remove(x);
+      durs.remove(x);
+      hidden.remove(x);
+      for (final c in colls) {
+        c.items.remove(x);
+      }
+    }
+    _index();
+    touch();
+    return failed;
   }
 
   void hide(Iterable<String> paths) {
