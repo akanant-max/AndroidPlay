@@ -48,6 +48,36 @@ jobs:
           open(f, 'w', encoding='utf-8').write(s)
           PY
 
+      - name: Force compileSdk 36 on plugins
+        run: |
+          python3 - <<'PY'
+          f = 'android/build.gradle.kts'
+          s = open(f, encoding='utf-8').read()
+          block = """subprojects {
+              if (name != "app") {
+                  afterEvaluate {
+                      val ext = extensions.findByName("android")
+                      if (ext != null) {
+                          try {
+                              ext.javaClass.methods
+                                  .firstOrNull { it.name == "setCompileSdk" && it.parameterCount == 1 }
+                                  ?.invoke(ext, 36)
+                          } catch (e: Throwable) {
+                          }
+                      }
+                  }
+              }
+          }
+
+          """
+          if 'setCompileSdk' not in s:
+              if 'allprojects' in s:
+                  s = s.replace('allprojects', block + 'allprojects', 1)
+              else:
+                  s = block + s
+          open(f, 'w', encoding='utf-8').write(s)
+          PY
+
       - run: flutter pub get
       - run: flutter build apk --release --split-per-abi
 
