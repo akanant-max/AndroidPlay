@@ -84,3 +84,62 @@ String fmt(Duration d) {
   final ss = s.toString().padLeft(2, '0');
   return h > 0 ? '$h:${m.toString().padLeft(2, '0')}:$ss' : '$m:$ss';
 }
+
+/// A user-made virtual folder. Holds file paths only, so it costs no extra space.
+class Coll {
+  final String id;
+  String name;
+  String? parent;
+  final List<String> items;
+  final int created;
+  Coll({
+    required this.id,
+    required this.name,
+    this.parent,
+    List<String>? items,
+    int? created,
+  })  : items = items ?? [],
+        created = created ?? DateTime.now().millisecondsSinceEpoch;
+
+  Map<String, dynamic> toJson() =>
+      {'id': id, 'name': name, 'parent': parent, 'items': items, 'created': created};
+
+  factory Coll.fromJson(Map j) => Coll(
+        id: j['id'] as String,
+        name: j['name'] as String,
+        parent: j['parent'] as String?,
+        items: [for (final x in (j['items'] as List? ?? [])) x as String],
+        created: j['created'] as int?,
+      );
+}
+
+/// Intro / credits markers the user set for a show (seconds).
+class ShowMarks {
+  double? introStart, introEnd, creditsFromEnd;
+  ShowMarks({this.introStart, this.introEnd, this.creditsFromEnd});
+  bool get isEmpty =>
+      introStart == null && introEnd == null && creditsFromEnd == null;
+  Map<String, dynamic> toJson() =>
+      {'is': introStart, 'ie': introEnd, 'cr': creditsFromEnd};
+  factory ShowMarks.fromJson(Map j) => ShowMarks(
+        introStart: (j['is'] as num?)?.toDouble(),
+        introEnd: (j['ie'] as num?)?.toDouble(),
+        creditsFromEnd: (j['cr'] as num?)?.toDouble(),
+      );
+}
+
+/// Remembered audio/subtitle choice for a show or a movie.
+class TrackPref {
+  String? aLang, aTitle, sLang, sTitle;
+  bool sOff;
+  TrackPref({this.aLang, this.aTitle, this.sLang, this.sTitle, this.sOff = false});
+  Map<String, dynamic> toJson() =>
+      {'al': aLang, 'at': aTitle, 'sl': sLang, 'st': sTitle, 'so': sOff};
+  factory TrackPref.fromJson(Map j) => TrackPref(
+        aLang: j['al'] as String?,
+        aTitle: j['at'] as String?,
+        sLang: j['sl'] as String?,
+        sTitle: j['st'] as String?,
+        sOff: (j['so'] as bool?) ?? false,
+      );
+}

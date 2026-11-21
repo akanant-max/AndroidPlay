@@ -15,10 +15,15 @@ const videoExts = {
   'mkv', 'mp4', 'm4v', 'avi', 'mov', 'wmv', 'flv', 'webm', 'ts', 'm2ts',
   'mts', 'mpg', 'mpeg', 'vob', 'ogv', '3gp', 'divx', 'asf', 'rmvb', 'f4v',
 };
+const subExts = {'srt', 'ass', 'ssa', 'vtt', 'sub', 'sup'};
+const speeds = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0];
 
 final store = Store();
 
 String showKey(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+bool isVideo(String path) =>
+    videoExts.contains(p.extension(path).toLowerCase().replaceFirst('.', ''));
 
 Future<bool> hasStorage() async {
   if (await Permission.manageExternalStorage.isGranted) return true;
@@ -36,9 +41,7 @@ Future<bool> ensureStorage() async {
 String _folderShow(String path) {
   final d = p.dirname(path);
   var n = p.basename(d);
-  if (RegExp(r'^(season|series|s)\s*\d+$', caseSensitive: false).hasMatch(n)) {
-    n = p.basename(p.dirname(d));
-  }
+  if (seasonFromDir(n) != null) n = p.basename(p.dirname(d));
   n = n.replaceAll(RegExp(r'[._]'), ' ').trim();
   return n.isEmpty ? 'Unknown show' : n;
 }
@@ -53,29 +56,59 @@ Item buildItem(String path, int size, int mtime) {
       episode: pr.episode, sub: pr.sub, size: size, added: mtime,
     );
   }
-  return Item(
-    path: path, title: pr.title, year: pr.year, size: size, added: mtime,
-  );
+  // "Show/Season 2/E05 - Title.mkv" style
+  final dirSeason = seasonFromDir(p.basename(p.dirname(path)));
+  if (dirSeason != null) {
+    final e = episodeOnly(base);
+    if (e != null) {
+      return Item(
+        path: path, title: base, show: _folderShow(path), season: dirSeason,
+        episode: e.$1, sub: e.$2, size: size, added: mtime,
+      );
+    }
+  }
+  return Item(path: path, title: pr.title, year: pr.year, size: size, added: mtime);
 }
 
+int _natural(String a, String b) {
+  final re = RegExp(r'(\d+)|(\D+)');
+  final x = re.allMatches(a.toLowerCase()).toList();
+  final y = re.allMatches(b.toLowerCase()).toList();
+  for (var i = 0; i < x.length && i < y.length; i++) {
+    final s = x[i].group(0)!, t = y[i].group(0)!;
+    final ns = int.tryParse(s), nt = int.tryParse(t);
+    final c = (ns != null && nt != null) ? ns.compareTo(nt) : s.compareTo(t);
+    if (c != 0) return c;
+  }
+  return x.length.compareTo(y.length);
+}
+
+int naturalCompare(String a, String b) => _natural(a, b);
+
 class Store extends ChangeNotifier {
-  List<String> folders = [];
+  List<String> folders = [], files = [];
   List<Item> items = [];
   Map<String, Item> byPath = {};
   final Map<String, Prog> progress = {};
+  final List<Coll> colls = [];
+  final Set<String> hidden = {};
+  final Map<String, ShowMarks> marks = {};
+  final Map<String, TrackPref> trackPrefs = {};
   bool scanning = false;
 
   // settings
-  String hwdec = 'auto-safe';
+  String hwdec = 'auto-safe', layout = 'grid', alang = '', slang = '';
   bool fastScrub = false,
       autoNext = true,
       thumbsOn = true,
       scanOnStart = true,
       resume = true,
-      landscape = true;
-  int seekStep = 10;
-  double volume = 100, subSize = 26;
-  String alang = '', slang = '';
+      landscape = true,
+      autoSkipIntro = false,
+      autoPip = true,
+      subBox = false;
+  int seekStep = 10, nextBeforeEnd = 60, gridSize = 1, movieSort = 0, showSort = 0;
+  double volume = 100, subScale = 1.0, defaultSpeed = 1.0;
 
   late String dir;
   late File _file;
@@ -89,25 +122,42 @@ class Store extends ChangeNotifier {
     try {
       if (_file.existsSync()) {
         final j = jsonDecode(_file.readAsStringSync()) as Map;
-        folders = [for (final f in (j['folders'] as List? ?? [])) f as String];
-        items = [
-          for (final i in (j['items'] as List? ?? [])) Item.fromJson(i as Map)
-        ];
-        final pg = (j['progress'] as Map?) ?? {};
-        pg.forEach((k, v) => progress[k as String] = Prog.fromJson(v as Map));
+        List<String> strs(String k) => [for (final f in (j[k] as List? ?? [])) f as String];
+        folders = strs('folders');
+        files = strs('files');
+        hidden.addAll(strs('hidden'));
+        items = [for (final i in (j['items'] as List? ?? [])) Item.fromJson(i as Map)];
+        ((j['progress'] as Map?) ?? {})
+            .forEach((k, v) => progress[k as String] = Prog.fromJson(v as Map));
+        colls.addAll([for (final c in (j['colls'] as List? ?? [])) Coll.fromJson(c as Map)]);
+        ((j['marks'] as Map?) ?? {})
+            .forEach((k, v) => marks[k as String] = ShowMarks.fromJson(v as Map));
+        ((j['tracks'] as Map?) ?? {})
+            .forEach((k, v) => trackPrefs[k as String] = TrackPref.fromJson(v as Map));
         final s = (j['settings'] as Map?) ?? {};
-        hwdec = (s['hwdec'] as String?) ?? hwdec;
-        fastScrub = (s['fastScrub'] as bool?) ?? fastScrub;
-        autoNext = (s['autoNext'] as bool?) ?? autoNext;
-        thumbsOn = (s['thumbsOn'] as bool?) ?? thumbsOn;
-        scanOnStart = (s['scanOnStart'] as bool?) ?? scanOnStart;
-        resume = (s['resume'] as bool?) ?? resume;
-        landscape = (s['landscape'] as bool?) ?? landscape;
-        seekStep = (s['seekStep'] as int?) ?? seekStep;
-        volume = ((s['volume'] as num?) ?? volume).toDouble();
-        subSize = ((s['subSize'] as num?) ?? subSize).toDouble();
-        alang = (s['alang'] as String?) ?? alang;
-        slang = (s['slang'] as String?) ?? slang;
+        T g<T>(String k, T d) => (s[k] is T) ? s[k] as T : d;
+        double gd(String k, double d) => ((s[k] as num?) ?? d).toDouble();
+        hwdec = g('hwdec', hwdec);
+        layout = g('layout', layout);
+        alang = g('alang', alang);
+        slang = g('slang', slang);
+        fastScrub = g('fastScrub', fastScrub);
+        autoNext = g('autoNext', autoNext);
+        thumbsOn = g('thumbsOn', thumbsOn);
+        scanOnStart = g('scanOnStart', scanOnStart);
+        resume = g('resume', resume);
+        landscape = g('landscape', landscape);
+        autoSkipIntro = g('autoSkipIntro', autoSkipIntro);
+        autoPip = g('autoPip', autoPip);
+        subBox = g('subBox', subBox);
+        seekStep = g('seekStep', seekStep);
+        nextBeforeEnd = g('nextBeforeEnd', nextBeforeEnd);
+        gridSize = g('gridSize', gridSize);
+        movieSort = g('movieSort', movieSort);
+        showSort = g('showSort', showSort);
+        volume = gd('volume', volume);
+        subScale = gd('subScale', subScale);
+        defaultSpeed = gd('defaultSpeed', defaultSpeed);
       }
     } catch (_) {}
     _index();
@@ -120,13 +170,21 @@ class Store extends ChangeNotifier {
 
   Map<String, dynamic> _json() => {
         'folders': folders,
+        'files': files,
+        'hidden': hidden.toList(),
         'items': [for (final i in items) i.toJson()],
         'progress': {for (final e in progress.entries) e.key: e.value.toJson()},
+        'colls': [for (final c in colls) c.toJson()],
+        'marks': {for (final e in marks.entries) e.key: e.value.toJson()},
+        'tracks': {for (final e in trackPrefs.entries) e.key: e.value.toJson()},
         'settings': {
-          'hwdec': hwdec, 'fastScrub': fastScrub, 'autoNext': autoNext,
-          'thumbsOn': thumbsOn, 'scanOnStart': scanOnStart, 'resume': resume,
-          'landscape': landscape, 'seekStep': seekStep, 'volume': volume,
-          'subSize': subSize, 'alang': alang, 'slang': slang,
+          'hwdec': hwdec, 'layout': layout, 'alang': alang, 'slang': slang,
+          'fastScrub': fastScrub, 'autoNext': autoNext, 'thumbsOn': thumbsOn,
+          'scanOnStart': scanOnStart, 'resume': resume, 'landscape': landscape,
+          'autoSkipIntro': autoSkipIntro, 'autoPip': autoPip, 'subBox': subBox,
+          'seekStep': seekStep, 'nextBeforeEnd': nextBeforeEnd,
+          'gridSize': gridSize, 'movieSort': movieSort, 'showSort': showSort,
+          'volume': volume, 'subScale': subScale, 'defaultSpeed': defaultSpeed,
         },
       };
 
@@ -155,8 +213,9 @@ class Store extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---- progress ----
+  // ---------------------------------------------------------- progress
   Prog? prog(String path) => progress[path];
+  int lastPlayed(String path) => progress[path]?.updated ?? 0;
 
   void setProg(String path, int pos, int dur) {
     final pr = progress.putIfAbsent(path, () => Prog());
@@ -167,11 +226,16 @@ class Store extends ChangeNotifier {
     _dirty();
   }
 
-  void markWatched(String path, bool w) {
-    final pr = progress.putIfAbsent(path, () => Prog());
-    pr.watched = w;
-    if (!w) pr.pos = 0;
-    pr.updated = DateTime.now().millisecondsSinceEpoch;
+  void markWatched(String path, bool w) => markMany([path], w);
+
+  void markMany(Iterable<String> paths, bool w) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final path in paths) {
+      final pr = progress.putIfAbsent(path, () => Prog());
+      pr.watched = w;
+      if (!w) pr.pos = 0;
+      pr.updated = now;
+    }
     touch();
   }
 
@@ -180,33 +244,62 @@ class Store extends ChangeNotifier {
     touch();
   }
 
-  // ---- folders / scanning ----
+  void hide(Iterable<String> paths) {
+    hidden.addAll(paths);
+    _shows = null;
+    touch();
+  }
+
+  void unhideAll() {
+    hidden.clear();
+    _shows = null;
+    touch();
+  }
+
+  // ---------------------------------------------------------- sources
   Future<void> addFolder(String path) async {
     if (!folders.contains(path)) {
       folders.add(path);
-      _dirty();
-      notifyListeners();
+      touch();
     }
     await rescan(ask: true);
   }
 
   void removeFolder(String path) {
     folders.remove(path);
-    items = items.where((i) => !p.isWithin(path, i.path)).toList();
+    items = items
+        .where((i) => !p.isWithin(path, i.path) || files.contains(i.path))
+        .toList();
     _index();
     touch();
   }
 
+  Future<void> addFiles(Iterable<String> paths) async {
+    for (final f in paths) {
+      if (!files.contains(f)) files.add(f);
+    }
+    touch();
+    await rescan(ask: true);
+  }
+
+  void removeFile(String path) {
+    files.remove(path);
+    if (!folders.any((f) => p.isWithin(f, path))) {
+      items.removeWhere((i) => i.path == path);
+      _index();
+    }
+    touch();
+  }
+
   Future<void> rescan({bool ask = false}) async {
-    if (scanning || folders.isEmpty) return;
+    if (scanning || (folders.isEmpty && files.isEmpty)) return;
     if (ask ? !await ensureStorage() : !await hasStorage()) return;
     scanning = true;
     notifyListeners();
     final found = <String, Item>{};
     try {
       for (final root in folders) {
-        var ok = true;
-        var n = 0;
+        var ok = true, n = 0;
         final d = Directory(root);
         if (!d.existsSync()) {
           ok = false;
@@ -221,15 +314,18 @@ class Store extends ChangeNotifier {
                   path.contains('${p.separator}Android${p.separator}')) {
                 continue;
               }
-              final ext = p.extension(path).toLowerCase().replaceFirst('.', '');
-              if (!videoExts.contains(ext)) continue;
+              if (!isVideo(path)) continue;
               final st = await e.stat();
               if (p.basename(path).toLowerCase().contains('sample') &&
                   st.size < 100 * 1024 * 1024) {
                 continue;
               }
-              found[path] =
-                  buildItem(path, st.size, st.modified.millisecondsSinceEpoch);
+              final old = byPath[path];
+              found[path] = (old != null &&
+                      old.size == st.size &&
+                      old.added == st.modified.millisecondsSinceEpoch)
+                  ? old
+                  : buildItem(path, st.size, st.modified.millisecondsSinceEpoch);
               if (++n % 150 == 0) await Future<void>.delayed(Duration.zero);
             }
           } catch (_) {
@@ -240,6 +336,16 @@ class Store extends ChangeNotifier {
           for (final i in items) {
             if (p.isWithin(root, i.path)) found.putIfAbsent(i.path, () => i);
           }
+        }
+      }
+      for (final f in files) {
+        if (found.containsKey(f)) continue;
+        final file = File(f);
+        if (file.existsSync()) {
+          final st = file.statSync();
+          found[f] = buildItem(f, st.size, st.modified.millisecondsSinceEpoch);
+        } else if (byPath[f] != null) {
+          found[f] = byPath[f]!;
         }
       }
       items = found.values.toList()..sort((a, b) => b.added.compareTo(a.added));
@@ -254,25 +360,28 @@ class Store extends ChangeNotifier {
     }
   }
 
-  // ---- views ----
-  List<Item> get movies => items.where((i) => !i.isEpisode).toList();
+  // ---------------------------------------------------------- views
+  Iterable<Item> get visible => items.where((i) => !hidden.contains(i.path));
+  List<Item> get movies => visible.where((i) => !i.isEpisode).toList();
 
   Map<String, List<Item>> get shows {
     final cached = _shows;
     if (cached != null) return cached;
     final m = <String, List<Item>>{};
-    for (final i in items) {
+    for (final i in visible) {
       if (i.isEpisode) m.putIfAbsent(showKey(i.show!), () => []).add(i);
     }
     for (final l in m.values) {
-      l.sort((a, b) {
-        final c = a.season!.compareTo(b.season!);
-        if (c != 0) return c;
-        final e = a.episode!.compareTo(b.episode!);
-        return e != 0 ? e : a.path.compareTo(b.path);
-      });
+      l.sort(compareEpisodes);
     }
     return _shows = m;
+  }
+
+  static int compareEpisodes(Item a, Item b) {
+    final c = a.season!.compareTo(b.season!);
+    if (c != 0) return c;
+    final e = a.episode!.compareTo(b.episode!);
+    return e != 0 ? e : naturalCompare(a.path, b.path);
   }
 
   (List<Item>, int) queueFor(Item it) {
@@ -280,6 +389,34 @@ class Store extends ChangeNotifier {
     final l = shows[showKey(it.show!)] ?? [it];
     final i = l.indexWhere((e) => e.path == it.path);
     return (l, i < 0 ? 0 : i);
+  }
+
+  /// Queue for a file opened from outside: library show, else its folder.
+  (List<Item>, int) queueForPath(String path) {
+    final known = byPath[path];
+    if (known != null) return queueFor(known);
+    final me = adhoc(path);
+    try {
+      final sib = Directory(p.dirname(path))
+          .listSync()
+          .whereType<File>()
+          .where((f) => isVideo(f.path))
+          .map((f) => f.path == path ? me : adhoc(f.path))
+          .toList();
+      if (me.isEpisode) {
+        final same = sib
+            .where((x) => x.isEpisode && showKey(x.show!) == showKey(me.show!))
+            .toList()
+          ..sort(compareEpisodes);
+        final i = same.indexWhere((x) => x.path == path);
+        if (i >= 0) return (same, i);
+      } else {
+        sib.sort((a, b) => naturalCompare(a.path, b.path));
+        final i = sib.indexWhere((x) => x.path == path);
+        if (i >= 0) return ([sib[i]], 0);
+      }
+    } catch (_) {}
+    return ([me], 0);
   }
 
   Item adhoc(String path) {
@@ -296,7 +433,11 @@ class Store extends ChangeNotifier {
     final out = <MapEntry<Item, int>>[];
     progress.forEach((path, pr) {
       final it = byPath[path];
-      if (it != null && !pr.watched && pr.pos > 15000 && pr.dur > 0) {
+      if (it != null &&
+          !hidden.contains(path) &&
+          !pr.watched &&
+          pr.pos > 15000 &&
+          pr.dur > 0) {
         out.add(MapEntry(it, pr.updated));
       }
     });
@@ -327,7 +468,7 @@ class Store extends ChangeNotifier {
     return [for (final e in out.take(20)) e.key];
   }
 
-  List<Item> recent() => items.take(30).toList();
+  List<Item> recent() => visible.take(30).toList();
 
   int resumeIndex(List<Item> eps) {
     var best = -1, bu = 0;
@@ -344,5 +485,115 @@ class Store extends ChangeNotifier {
       if (progress[eps[i].path]?.watched == true) last = i;
     }
     return last + 1 < eps.length ? last + 1 : 0;
+  }
+
+  /// Sort modes: 0 title, 1 recently added, 2 recently watched, 3 year, 4 size.
+  static const sortNames = ['Title', 'Recently added', 'Recently watched', 'Year', 'Size'];
+
+  // ---------------------------------------------------------- collections
+  String _newId() => DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+
+  Coll? coll(String? id) {
+    if (id == null) return null;
+    for (final c in colls) {
+      if (c.id == id) return c;
+    }
+    return null;
+  }
+
+  List<Coll> childrenOf(String? parent) =>
+      colls.where((c) => c.parent == parent).toList()
+        ..sort((a, b) => naturalCompare(a.name, b.name));
+
+  Coll createColl(String name, {String? parent}) {
+    final c = Coll(id: _newId(), name: name.trim().isEmpty ? 'New folder' : name.trim(), parent: parent);
+    colls.add(c);
+    touch();
+    return c;
+  }
+
+  void renameColl(String id, String name) {
+    final c = coll(id);
+    if (c != null && name.trim().isNotEmpty) {
+      c.name = name.trim();
+      touch();
+    }
+  }
+
+  void deleteColl(String id) {
+    final kill = <String>{id};
+    var grew = true;
+    while (grew) {
+      grew = false;
+      for (final c in colls) {
+        if (c.parent != null && kill.contains(c.parent) && kill.add(c.id)) grew = true;
+      }
+    }
+    colls.removeWhere((c) => kill.contains(c.id));
+    touch();
+  }
+
+  bool _isDescendant(String id, String? of) {
+    var cur = coll(of);
+    while (cur != null) {
+      if (cur.id == id) return true;
+      cur = coll(cur.parent);
+    }
+    return false;
+  }
+
+  void moveColl(String id, String? newParent) {
+    final c = coll(id);
+    if (c == null || id == newParent || _isDescendant(id, newParent)) return;
+    c.parent = newParent;
+    touch();
+  }
+
+  void addToColl(String id, Iterable<String> paths) {
+    final c = coll(id);
+    if (c == null) return;
+    for (final x in paths) {
+      if (!c.items.contains(x)) c.items.add(x);
+    }
+    touch();
+  }
+
+  void removeFromColl(String id, Iterable<String> paths) {
+    final c = coll(id);
+    if (c == null) return;
+    final s = paths.toSet();
+    c.items.removeWhere(s.contains);
+    touch();
+  }
+
+  int collCount(String id) {
+    final c = coll(id);
+    if (c == null) return 0;
+    return c.items.where(byPath.containsKey).length +
+        childrenOf(id).fold(0, (a, b) => a + collCount(b.id));
+  }
+
+  /// "Movies / Marvel / Phase 1" style path for pickers.
+  String collPath(String id) {
+    final parts = <String>[];
+    var cur = coll(id);
+    while (cur != null) {
+      parts.insert(0, cur.name);
+      cur = coll(cur.parent);
+    }
+    return parts.join(' / ');
+  }
+
+  // ---------------------------------------------------------- per show
+  String prefKey(Item it) => it.isEpisode ? 'show:${showKey(it.show!)}' : 'file:${it.path}';
+
+  ShowMarks marksFor(Item it) =>
+      marks.putIfAbsent(it.isEpisode ? showKey(it.show!) : it.path, () => ShowMarks());
+
+  void saveMarks() => _dirty();
+
+  void setTrackPref(Item it, TrackPref pref) {
+    trackPrefs[prefKey(it)] = pref;
+    _dirty();
   }
 }

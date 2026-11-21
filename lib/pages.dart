@@ -1,9 +1,10 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
+import 'collections.dart';
 import 'models.dart';
+import 'settings.dart';
+import 'sources.dart';
 import 'store.dart';
 import 'thumbs.dart';
 import 'widgets.dart';
@@ -20,8 +21,8 @@ class _ShellState extends State<Shell> {
     HomePage(),
     LibraryPage(shows: false),
     LibraryPage(shows: true),
-    FoldersPage(),
-    SettingsPage(),
+    CollectionPage(id: null),
+    SourcesPage(),
   ];
 
   @override
@@ -44,13 +45,22 @@ class _ShellState extends State<Shell> {
           NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.movie_outlined), selectedIcon: Icon(Icons.movie), label: 'Movies'),
           NavigationDestination(icon: Icon(Icons.tv_outlined), selectedIcon: Icon(Icons.tv), label: 'Shows'),
-          NavigationDestination(icon: Icon(Icons.folder_outlined), selectedIcon: Icon(Icons.folder), label: 'Library'),
-          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Settings'),
+          NavigationDestination(icon: Icon(Icons.folder_special_outlined), selectedIcon: Icon(Icons.folder_special), label: 'Folders'),
+          NavigationDestination(icon: Icon(Icons.storage_outlined), selectedIcon: Icon(Icons.storage), label: 'Sources'),
         ],
       ),
     );
   }
 }
+
+Widget rescanButton() => ListenableBuilder(
+      listenable: store,
+      builder: (_, __) => IconButton(
+        tooltip: 'Scan for changes',
+        icon: const Icon(Icons.refresh),
+        onPressed: store.scanning ? null : () => store.rescan(ask: true),
+      ),
+    );
 
 // ---------------------------------------------------------------- Home
 
@@ -60,15 +70,36 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Reel')),
+      appBar: AppBar(
+        title: const Text('Reel'),
+        actions: [
+          IconButton(
+            tooltip: 'Search',
+            icon: const Icon(Icons.search),
+            onPressed: () => Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const SearchPage())),
+          ),
+          rescanButton(),
+          IconButton(
+            tooltip: 'Settings',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const SettingsPage())),
+          ),
+        ],
+      ),
       body: ListenableBuilder(
         listenable: store,
         builder: (context, _) {
           if (store.items.isEmpty) {
-            return const EmptyState(
+            return EmptyState(
               Icons.video_library_outlined,
-              'Add a folder and your movies and shows appear here.',
-              addButton: true,
+              'Add a folder or some files and your movies and shows appear here.',
+              action: FilledButton.icon(
+                onPressed: () => openBrowser(context),
+                icon: const Icon(Icons.create_new_folder_outlined),
+                label: const Text('Add videos'),
+              ),
             );
           }
           final cont = store.continueWatching();
@@ -76,11 +107,11 @@ class HomePage extends StatelessWidget {
           final recent = store.recent();
           return ListView(padding: const EdgeInsets.only(bottom: 16), children: [
             if (cont.isNotEmpty)
-              Shelf('Continue watching', [for (final i in cont) itemCard(context, i)]),
+              Shelf('Continue watching', [for (final i in cont) itemTile(context, i)]),
             if (next.isNotEmpty)
-              Shelf('Next up', [for (final i in next) itemCard(context, i, showProgress: false)]),
+              Shelf('Next up', [for (final i in next) itemTile(context, i)]),
             if (recent.isNotEmpty)
-              Shelf('Recently added', [for (final i in recent) itemCard(context, i)]),
+              Shelf('Recently added', [for (final i in recent) itemTile(context, i)]),
           ]);
         },
       ),
@@ -88,33 +119,118 @@ class HomePage extends StatelessWidget {
   }
 }
 
-// ------------------------------------------------------- Movies / Shows
+// ---------------------------------------------------------------- Search
 
-class _Tile {
-  final String title;
-  final String? subtitle;
-  final Item art;
-  final String? artPath;
-  final double progress;
-  final bool watched, anyUnwatched;
-  final int badge, added, year;
-  final VoidCallback onTap;
-  final VoidCallback? onLong;
-  _Tile({
-    required this.title,
-    this.subtitle,
-    required this.art,
-    this.artPath,
-    this.progress = 0,
-    this.watched = false,
-    this.anyUnwatched = true,
-    this.badge = 0,
-    required this.added,
-    this.year = 0,
-    required this.onTap,
-    this.onLong,
-  });
+class SearchPage extends StatefulWidget {
+  const SearchPage({super.key});
+  @override
+  State<SearchPage> createState() => _SearchPageState();
 }
+
+class _SearchPageState extends State<SearchPage> {
+  String q = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final words = q.toLowerCase().split(' ').where((w) => w.isNotEmpty).toList();
+    bool hit(String s) {
+      final l = s.toLowerCase();
+      return words.every(l.contains);
+    }
+
+    final shows = <MapEntry<String, List<Item>>>[];
+    final movies = <Item>[];
+    final eps = <Item>[];
+    if (words.isNotEmpty) {
+      store.shows.forEach((k, v) {
+        if (hit(v.first.show!)) shows.add(MapEntry(k, v));
+      });
+      for (final i in store.visible) {
+        if (i.isEpisode) {
+          if (hit('${i.show} ${i.epLabel} ${i.sub ?? ''} ${p.basename(i.path)}') &&
+              !hit(i.show!)) {
+            eps.add(i);
+          }
+        } else if (hit('${i.name} ${p.basename(i.path)}')) {
+          movies.add(i);
+        }
+      }
+    }
+    Widget head(String t) => Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+          child: Text(t, style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.white70)),
+        );
+    Widget row(TileData t) => InkWell(
+          onTap: t.onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Row(children: [
+              SizedBox(
+                width: 120,
+                child: ArtThumb(item: t.art, artPath: t.artPath, watch: t.watch, fraction: t.fraction),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(t.title, maxLines: 2, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  if (t.subtitle != null)
+                    Text(t.subtitle!, style: const TextStyle(fontSize: 12, color: Colors.white54)),
+                ]),
+              ),
+            ]),
+          ),
+        );
+    return Scaffold(
+      appBar: AppBar(
+        title: TextField(
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Search movies, shows, episodes',
+            border: InputBorder.none,
+          ),
+          onChanged: (v) => setState(() => q = v.trim()),
+        ),
+      ),
+      body: words.isEmpty
+          ? const EmptyState(Icons.search, 'Type to search your library.')
+          : (shows.isEmpty && movies.isEmpty && eps.isEmpty)
+              ? const EmptyState(Icons.search_off, 'Nothing found.')
+              : ListView(children: [
+                  if (shows.isNotEmpty) head('Shows'),
+                  for (final s in shows)
+                    row(showTile(context, s.key, s.value)),
+                  if (movies.isNotEmpty) head('Movies'),
+                  for (final m in movies) row(itemTile(context, m)),
+                  if (eps.isNotEmpty) head('Episodes'),
+                  for (final e in eps.take(100))
+                    row(itemTile(context, e, subtitle: '${e.show} · ${e.detail}')),
+                ]),
+    );
+  }
+}
+
+TileData showTile(BuildContext context, String key, List<Item> eps) {
+  final (w, f) = showWatch(eps);
+  final seasons = eps.map((e) => e.season).toSet().length;
+  final left = eps.where((e) => store.prog(e.path)?.watched != true).length;
+  return TileData(
+    id: key,
+    title: eps.first.show!,
+    subtitle: left > 0 && left < eps.length
+        ? '$left of ${eps.length} left'
+        : '${eps.length} episode${eps.length == 1 ? '' : 's'} · $seasons season${seasons == 1 ? '' : 's'}',
+    art: eps.first,
+    artPath: showArt(eps),
+    watch: w,
+    fraction: f,
+    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ShowPage(name: eps.first.show!, keyName: key),
+    )),
+  );
+}
+
+// ------------------------------------------------------- Movies / Shows
 
 class LibraryPage extends StatefulWidget {
   final bool shows;
@@ -126,65 +242,59 @@ class LibraryPage extends StatefulWidget {
 class _LibraryPageState extends State<LibraryPage> {
   String q = '';
   bool searching = false, unwatchedOnly = false;
-  int sort = 0;
+  final sel = <String>{};
 
-  List<_Tile> _tiles(BuildContext context) {
-    final out = <_Tile>[];
+  int get sort => widget.shows ? store.showSort : store.movieSort;
+
+  List<TileData> _tiles(BuildContext context) {
+    final out = <(TileData, Item, int, int, int, int)>[];
+    // (tile, sample, added, watched, year, size)
     if (!widget.shows) {
       for (final i in store.movies) {
-        final pr = store.prog(i.path);
-        out.add(_Tile(
-          title: i.name,
-          subtitle: null,
-          art: i,
-          progress: pr != null && !pr.watched ? pr.frac : 0,
-          watched: pr?.watched ?? false,
-          anyUnwatched: pr?.watched != true,
-          added: i.added,
-          year: i.year ?? 0,
-          onTap: () => playItem(context, i),
-          onLong: () => itemSheet(context, i),
-        ));
+        if (unwatchedOnly && store.prog(i.path)?.watched == true) continue;
+        out.add((itemTile(context, i), i, i.added, store.lastPlayed(i.path), i.year ?? 0, i.size));
       }
     } else {
       store.shows.forEach((key, eps) {
-        final unwatched =
-            eps.where((e) => store.prog(e.path)?.watched != true).length;
-        final seasons = eps.map((e) => e.season).toSet().length;
-        out.add(_Tile(
-          title: eps.first.show!,
-          subtitle:
-              '${eps.length} episode${eps.length == 1 ? '' : 's'} · $seasons season${seasons == 1 ? '' : 's'}',
-          art: eps.first,
-          artPath: showArt(eps),
-          watched: unwatched == 0,
-          anyUnwatched: unwatched > 0,
-          badge: unwatched == eps.length ? 0 : unwatched,
-          added: eps.map((e) => e.added).reduce((a, b) => a > b ? a : b),
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => ShowPage(name: eps.first.show!, keyName: key),
-          )),
-        ));
+        if (unwatchedOnly && eps.every((e) => store.prog(e.path)?.watched == true)) return;
+        var added = 0, played = 0, size = 0;
+        for (final e in eps) {
+          if (e.added > added) added = e.added;
+          final l = store.lastPlayed(e.path);
+          if (l > played) played = l;
+          size += e.size;
+        }
+        out.add((showTile(context, key, eps), eps.first, added, played, 0, size));
       });
     }
-    var list = out.where((t) {
-      if (q.isNotEmpty && !t.title.toLowerCase().contains(q)) return false;
-      if (unwatchedOnly && !t.anyUnwatched) return false;
-      return true;
-    }).toList();
-    list.sort((a, b) {
+    final filtered = q.isEmpty
+        ? out
+        : out.where((t) => t.$1.title.toLowerCase().contains(q)).toList();
+    filtered.sort((a, b) {
+      int byTitle() => naturalCompare(a.$1.title, b.$1.title);
       switch (sort) {
         case 1:
-          return b.added.compareTo(a.added);
+          return b.$3.compareTo(a.$3);
         case 2:
-          final c = b.year.compareTo(a.year);
-          if (c != 0) return c;
-          return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+          final c = b.$4.compareTo(a.$4);
+          return c != 0 ? c : byTitle();
+        case 3:
+          final c = b.$5.compareTo(a.$5);
+          return c != 0 ? c : byTitle();
+        case 4:
+          return b.$6.compareTo(a.$6);
         default:
-          return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+          return byTitle();
       }
     });
-    return list;
+    return [for (final t in filtered) t.$1];
+  }
+
+  List<String> _selPaths() {
+    if (!widget.shows) return sel.toList();
+    return [
+      for (final k in sel) ...?store.shows[k]?.map((e) => e.path),
+    ];
   }
 
   @override
@@ -193,78 +303,97 @@ class _LibraryPageState extends State<LibraryPage> {
       listenable: store,
       builder: (context, _) {
         final tiles = _tiles(context);
-        return Scaffold(
-          appBar: AppBar(
-            title: searching
-                ? TextField(
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                        hintText: 'Search', border: InputBorder.none),
-                    onChanged: (v) => setState(() => q = v.trim().toLowerCase()),
+        sel.removeWhere((id) => !tiles.any((t) => t.id == id));
+        final selecting = sel.isNotEmpty;
+        return PopScope(
+          canPop: !selecting,
+          onPopInvokedWithResult: (_, __) {
+            if (selecting) setState(sel.clear);
+          },
+          child: Scaffold(
+            appBar: selecting
+                ? AppBar(
+                    leading: IconButton(icon: const Icon(Icons.close), onPressed: () => setState(sel.clear)),
+                    title: Text('${sel.length} selected'),
+                    actions: [
+                      IconButton(
+                        tooltip: 'Select all',
+                        icon: const Icon(Icons.select_all),
+                        onPressed: () => setState(() => sel.addAll(tiles.map((t) => t.id))),
+                      ),
+                      IconButton(
+                        tooltip: 'Add to folder',
+                        icon: const Icon(Icons.drive_file_move_outline),
+                        onPressed: () async {
+                          final id = await pickCollection(context);
+                          if (id != null) {
+                            store.addToColl(id, _selPaths());
+                            setState(sel.clear);
+                          }
+                        },
+                      ),
+                      IconButton(
+                        tooltip: 'More',
+                        icon: const Icon(Icons.more_vert),
+                        onPressed: () => bulkSheet(context, _selPaths(), done: () => setState(sel.clear)),
+                      ),
+                    ],
                   )
-                : Text(widget.shows ? 'TV Shows' : 'Movies'),
-            actions: [
-              IconButton(
-                icon: Icon(searching ? Icons.close : Icons.search),
-                onPressed: () => setState(() {
-                  searching = !searching;
-                  if (!searching) q = '';
-                }),
-              ),
-              IconButton(
-                tooltip: 'Unwatched only',
-                icon: Icon(unwatchedOnly
-                    ? Icons.visibility
-                    : Icons.visibility_outlined),
-                onPressed: () => setState(() => unwatchedOnly = !unwatchedOnly),
-              ),
-              PopupMenuButton<int>(
-                icon: const Icon(Icons.sort),
-                onSelected: (v) => setState(() => sort = v),
-                itemBuilder: (_) => [
-                  CheckedPopupMenuItem(value: 0, checked: sort == 0, child: const Text('Title')),
-                  CheckedPopupMenuItem(value: 1, checked: sort == 1, child: const Text('Recently added')),
-                  if (!widget.shows)
-                    CheckedPopupMenuItem(value: 2, checked: sort == 2, child: const Text('Year')),
-                ],
-              ),
-            ],
+                : AppBar(
+                    title: searching
+                        ? TextField(
+                            autofocus: true,
+                            decoration: const InputDecoration(hintText: 'Search', border: InputBorder.none),
+                            onChanged: (v) => setState(() => q = v.trim().toLowerCase()),
+                          )
+                        : Text(widget.shows ? 'TV Shows' : 'Movies'),
+                    actions: [
+                      IconButton(
+                        icon: Icon(searching ? Icons.close : Icons.search),
+                        onPressed: () => setState(() {
+                          searching = !searching;
+                          if (!searching) q = '';
+                        }),
+                      ),
+                      PopupMenuButton<int>(
+                        tooltip: 'Sort and filter',
+                        icon: const Icon(Icons.sort),
+                        onSelected: (v) {
+                          if (v == 99) {
+                            setState(() => unwatchedOnly = !unwatchedOnly);
+                          } else {
+                            store.update(() {
+                              if (widget.shows) {
+                                store.showSort = v;
+                              } else {
+                                store.movieSort = v;
+                              }
+                            });
+                          }
+                        },
+                        itemBuilder: (_) => [
+                          for (var i = 0; i < Store.sortNames.length; i++)
+                            if (!(widget.shows && i == 3))
+                              CheckedPopupMenuItem(value: i, checked: sort == i, child: Text(Store.sortNames[i])),
+                          const PopupMenuDivider(),
+                          CheckedPopupMenuItem(value: 99, checked: unwatchedOnly, child: const Text('Unwatched only')),
+                        ],
+                      ),
+                      const LayoutButton(),
+                      rescanButton(),
+                    ],
+                  ),
+            body: tiles.isEmpty
+                ? EmptyState(
+                    widget.shows ? Icons.tv_outlined : Icons.movie_outlined,
+                    store.items.isEmpty ? 'Add videos in the Sources tab.' : 'Nothing matches.',
+                  )
+                : TilesView(
+                    tiles: tiles,
+                    selected: sel,
+                    onSelect: (id) => setState(() => sel.contains(id) ? sel.remove(id) : sel.add(id)),
+                  ),
           ),
-          body: tiles.isEmpty
-              ? EmptyState(
-                  widget.shows ? Icons.tv_outlined : Icons.movie_outlined,
-                  store.items.isEmpty
-                      ? 'Add a folder in the Library tab.'
-                      : 'Nothing matches.',
-                )
-              : LayoutBuilder(builder: (context, c) {
-                  final cols = (c.maxWidth / 190).floor().clamp(2, 6);
-                  final w = (c.maxWidth - 32 - (cols - 1) * 12) / cols;
-                  return GridView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: cols,
-                      mainAxisSpacing: 14,
-                      crossAxisSpacing: 12,
-                      mainAxisExtent: w * 9 / 16 + 54,
-                    ),
-                    itemCount: tiles.length,
-                    itemBuilder: (_, i) {
-                      final t = tiles[i];
-                      return MediaCard(
-                        title: t.title,
-                        subtitle: t.subtitle,
-                        artItem: t.art,
-                        artPath: t.artPath,
-                        progress: t.progress,
-                        watched: t.watched,
-                        badge: t.badge,
-                        onTap: t.onTap,
-                        onLong: t.onLong,
-                      );
-                    },
-                  );
-                }),
         );
       },
     );
@@ -295,23 +424,33 @@ class _ShowPageState extends State<ShowPage> {
             : (seasons.isEmpty ? null : seasons.first);
         final list = eps.where((e) => e.season == sel).toList();
         final ri = eps.isEmpty ? 0 : store.resumeIndex(eps);
+        final rp = eps.isEmpty ? null : store.prog(eps[ri].path);
         return Scaffold(
           appBar: AppBar(
             title: Text(widget.name),
             actions: [
               PopupMenuButton<String>(
-                onSelected: (v) {
-                  for (final e in eps) {
-                    store.progress
-                        .putIfAbsent(e.path, () => Prog())
-                        .watched = v == 'w';
-                    if (v != 'w') store.progress[e.path]!.pos = 0;
+                onSelected: (v) async {
+                  switch (v) {
+                    case 'sw':
+                      store.markMany(list.map((e) => e.path), true);
+                    case 'su':
+                      store.markMany(list.map((e) => e.path), false);
+                    case 'aw':
+                      store.markMany(eps.map((e) => e.path), true);
+                    case 'au':
+                      store.markMany(eps.map((e) => e.path), false);
+                    case 'f':
+                      final id = await pickCollection(context);
+                      if (id != null) store.addToColl(id, eps.map((e) => e.path));
                   }
-                  store.touch();
                 },
                 itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'w', child: Text('Mark all watched')),
-                  PopupMenuItem(value: 'u', child: Text('Mark all unwatched')),
+                  PopupMenuItem(value: 'sw', child: Text('Mark season watched')),
+                  PopupMenuItem(value: 'su', child: Text('Mark season unwatched')),
+                  PopupMenuItem(value: 'aw', child: Text('Mark all watched')),
+                  PopupMenuItem(value: 'au', child: Text('Mark all unwatched')),
+                  PopupMenuItem(value: 'f', child: Text('Add show to folder')),
                 ],
               ),
             ],
@@ -326,21 +465,28 @@ class _ShowPageState extends State<ShowPage> {
                         onPressed: () => playItems(context, eps, ri),
                         icon: const Icon(Icons.play_arrow),
                         label: Text(
-                            '${store.prog(eps[ri].path)?.pos != null && (store.prog(eps[ri].path)!.pos > 15000) ? 'Resume' : 'Play'} ${eps[ri].epLabel}'),
+                            '${rp != null && !rp.watched && rp.pos > 15000 ? 'Resume' : 'Play'} ${eps[ri].epLabel}'),
                       ),
                     ]),
                   ),
                   if (seasons.length > 1)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                      child: Wrap(spacing: 8, children: [
-                        for (final s in seasons)
-                          ChoiceChip(
-                            label: Text(s == 0 ? 'Specials' : 'Season $s'),
-                            selected: s == sel,
-                            onSelected: (_) => setState(() => season = s),
-                          ),
-                      ]),
+                    SizedBox(
+                      height: 48,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        children: [
+                          for (final s in seasons)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ChoiceChip(
+                                label: Text(s == 0 ? 'Specials' : 'Season $s'),
+                                selected: s == sel,
+                                onSelected: (_) => setState(() => season = s),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
                   for (final e in list) _episode(context, e, eps),
                 ]),
@@ -351,10 +497,10 @@ class _ShowPageState extends State<ShowPage> {
 
   Widget _episode(BuildContext context, Item e, List<Item> all) {
     final pr = store.prog(e.path);
-    final inProg = pr != null && !pr.watched && pr.pos > 15000;
-    final status = pr?.watched == true
+    final (w, f) = itemWatch(e);
+    final status = w == Watch.done
         ? 'Watched'
-        : inProg
+        : w == Watch.partial
             ? '${fmt(Duration(milliseconds: pr!.pos))} / ${fmt(Duration(milliseconds: pr.dur))}'
             : fmtSize(e.size);
     return InkWell(
@@ -363,13 +509,7 @@ class _ShowPageState extends State<ShowPage> {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         child: Row(children: [
-          SizedBox(
-            width: 140,
-            child: ArtThumb(
-              item: e,
-              progress: inProg ? pr!.frac : 0,
-            ),
-          ),
+          SizedBox(width: 140, child: ArtThumb(item: e, watch: w, fraction: f)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -380,260 +520,18 @@ class _ShowPageState extends State<ShowPage> {
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 2),
-              Text(status,
-                  style: const TextStyle(fontSize: 12, color: Colors.white54)),
+              Text(status, style: const TextStyle(fontSize: 12, color: Colors.white54)),
             ]),
           ),
           IconButton(
             icon: Icon(
-              pr?.watched == true
-                  ? Icons.check_circle
-                  : Icons.radio_button_unchecked,
+              pr?.watched == true ? Icons.check_circle : Icons.radio_button_unchecked,
               color: pr?.watched == true ? null : Colors.white38,
             ),
             onPressed: () => store.markWatched(e.path, pr?.watched != true),
           ),
         ]),
       ),
-    );
-  }
-}
-
-// ------------------------------------------------------------- Library
-
-class FoldersPage extends StatelessWidget {
-  const FoldersPage({super.key});
-
-  static const _quick = [
-    '/storage/emulated/0/Movies',
-    '/storage/emulated/0/Download',
-    '/storage/emulated/0/DCIM',
-    '/storage/emulated/0/Videos',
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([store, thumbs]),
-      builder: (context, _) {
-        final quick = [
-          for (final d in _quick)
-            if (!store.folders.contains(d) && Directory(d).existsSync()) d
-        ];
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Library'),
-            actions: [
-              IconButton(
-                tooltip: 'Rescan',
-                icon: const Icon(Icons.refresh),
-                onPressed: store.scanning ? null : () => store.rescan(ask: true),
-              ),
-            ],
-          ),
-          floatingActionButton: FloatingActionButton.extended(
-            onPressed: () => addFolderFlow(context),
-            icon: const Icon(Icons.create_new_folder_outlined),
-            label: const Text('Add folder'),
-          ),
-          body: ListView(padding: const EdgeInsets.only(bottom: 96), children: [
-            ListTile(
-              leading: const Icon(Icons.video_library_outlined),
-              title: Text('${store.items.length} videos · '
-                  '${store.movies.length} movies · ${store.shows.length} shows'),
-              subtitle: Text(store.scanning
-                  ? 'Scanning…'
-                  : thumbs.pending > 0
-                      ? 'Making thumbnails: ${thumbs.pending} left'
-                      : 'Up to date'),
-            ),
-            const Divider(height: 1),
-            if (store.folders.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text(
-                  'No folders yet. Add the folders where your videos live. '
-                  'Reel only reads this phone\'s storage, nothing goes online.',
-                  style: TextStyle(color: Colors.white60),
-                ),
-              ),
-            for (final f in store.folders)
-              ListTile(
-                leading: const Icon(Icons.folder_outlined),
-                title: Text(p.basename(f).isEmpty ? f : p.basename(f)),
-                subtitle: Text(
-                  '$f\n${store.items.where((i) => p.isWithin(f, i.path)).length} videos'
-                  '${Directory(f).existsSync() ? '' : ' · not found'}',
-                ),
-                isThreeLine: true,
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () => store.removeFolder(f),
-                ),
-              ),
-            if (quick.isNotEmpty) ...[
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 20, 16, 8),
-                child: Text('Quick add', style: TextStyle(color: Colors.white60)),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Wrap(spacing: 8, children: [
-                  for (final d in quick)
-                    ActionChip(
-                      avatar: const Icon(Icons.add, size: 18),
-                      label: Text(p.basename(d)),
-                      onPressed: () => store.addFolder(d),
-                    ),
-                ]),
-              ),
-            ],
-          ]),
-        );
-      },
-    );
-  }
-}
-
-// ------------------------------------------------------------ Settings
-
-class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: store,
-      builder: (context, _) {
-        Widget head(String t) => Padding(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-              child: Text(t,
-                  style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.w700)),
-            );
-        return Scaffold(
-          appBar: AppBar(title: const Text('Settings')),
-          body: ListView(children: [
-            head('Playback'),
-            ListTile(
-              title: const Text('Hardware decoding'),
-              subtitle: const Text('Change only if a video stutters or shows green'),
-              trailing: DropdownButton<String>(
-                value: store.hwdec,
-                underline: const SizedBox(),
-                onChanged: (v) => store.update(() => store.hwdec = v!),
-                items: const [
-                  DropdownMenuItem(value: 'auto-safe', child: Text('Auto')),
-                  DropdownMenuItem(value: 'mediacodec', child: Text('MediaCodec')),
-                  DropdownMenuItem(value: 'mediacodec-copy', child: Text('MediaCodec copy')),
-                  DropdownMenuItem(value: 'no', child: Text('Software')),
-                ],
-              ),
-            ),
-            SwitchListTile(
-              title: const Text('Always use fast seeking'),
-              subtitle: const Text(
-                  'Jumps to the nearest keyframe: smoothest on 4K, slightly less exact. Dragging the bar is always fast.'),
-              value: store.fastScrub,
-              onChanged: (v) => store.update(() => store.fastScrub = v),
-            ),
-            SwitchListTile(
-              title: const Text('Resume where I left off'),
-              value: store.resume,
-              onChanged: (v) => store.update(() => store.resume = v),
-            ),
-            SwitchListTile(
-              title: const Text('Play next episode automatically'),
-              value: store.autoNext,
-              onChanged: (v) => store.update(() => store.autoNext = v),
-            ),
-            SwitchListTile(
-              title: const Text('Open videos in landscape'),
-              value: store.landscape,
-              onChanged: (v) => store.update(() => store.landscape = v),
-            ),
-            ListTile(
-              title: const Text('Double-tap skip'),
-              trailing: DropdownButton<int>(
-                value: store.seekStep,
-                underline: const SizedBox(),
-                onChanged: (v) => store.update(() => store.seekStep = v!),
-                items: [
-                  for (final s in [5, 10, 15, 30])
-                    DropdownMenuItem(value: s, child: Text('$s s')),
-                ],
-              ),
-            ),
-            head('Subtitles and audio'),
-            ListTile(
-              title: Text('Subtitle size: ${store.subSize.round()}'),
-              subtitle: Slider(
-                min: 14, max: 48, divisions: 34,
-                value: store.subSize.clamp(14.0, 48.0).toDouble(),
-                onChanged: (v) => store.update(() => store.subSize = v),
-              ),
-            ),
-            ListTile(
-              title: const Text('Preferred audio languages'),
-              subtitle: TextFormField(
-                initialValue: store.alang,
-                decoration: const InputDecoration(hintText: 'e.g. eng,hin'),
-                onChanged: (v) => store.update(() => store.alang = v.trim()),
-              ),
-            ),
-            ListTile(
-              title: const Text('Preferred subtitle languages'),
-              subtitle: TextFormField(
-                initialValue: store.slang,
-                decoration: const InputDecoration(hintText: 'e.g. eng,ben'),
-                onChanged: (v) => store.update(() => store.slang = v.trim()),
-              ),
-            ),
-            head('Library'),
-            SwitchListTile(
-              title: const Text('Rescan folders when the app opens'),
-              value: store.scanOnStart,
-              onChanged: (v) => store.update(() => store.scanOnStart = v),
-            ),
-            SwitchListTile(
-              title: const Text('Make thumbnails from video frames'),
-              subtitle: const Text('Runs one at a time and pauses while you watch'),
-              value: store.thumbsOn,
-              onChanged: (v) {
-                store.update(() => store.thumbsOn = v);
-                if (v) thumbs.resume();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_sweep_outlined),
-              title: const Text('Clear thumbnail cache'),
-              onTap: () {
-                thumbs.clearAll();
-                for (final i in store.items) {
-                  thumbs.want(i);
-                }
-                ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Thumbnails will be rebuilt')));
-              },
-            ),
-            head('Player gestures'),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 4, 16, 24),
-              child: Text(
-                'Tap: show or hide controls\n'
-                'Double-tap left or right: skip back or forward\n'
-                'Double-tap middle: play or pause\n'
-                'Swipe left or right: scrub\n'
-                'Swipe up or down on the left: brightness\n'
-                'Swipe up or down on the right: volume (up to 130%)\n'
-                'Press and hold: 2x speed while held',
-                style: TextStyle(color: Colors.white60, height: 1.5),
-              ),
-            ),
-          ]),
-        );
-      },
     );
   }
 }

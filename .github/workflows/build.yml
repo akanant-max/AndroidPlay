@@ -31,54 +31,12 @@ jobs:
             rm -rf test
           fi
 
-      - name: Patch manifest (permissions, app name)
-        run: |
-          python3 - <<'PY'
-          f = 'android/app/src/main/AndroidManifest.xml'
-          s = open(f, encoding='utf-8').read()
-          perms = (
-              '<uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>\n'
-              '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>\n'
-              '    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>\n'
-              '    '
-          )
-          if 'MANAGE_EXTERNAL_STORAGE' not in s:
-              s = s.replace('<application', perms + '<application', 1)
-          s = s.replace('android:label="reel"', 'android:label="Reel"')
-          open(f, 'w', encoding='utf-8').write(s)
-          PY
-
-      - name: Force compileSdk 36 on plugins
-        run: |
-          python3 - <<'PY'
-          f = 'android/build.gradle.kts'
-          s = open(f, encoding='utf-8').read()
-          block = """subprojects {
-              if (name != "app") {
-                  afterEvaluate {
-                      val ext = extensions.findByName("android")
-                      if (ext != null) {
-                          try {
-                              ext.javaClass.methods
-                                  .firstOrNull { it.name == "setCompileSdk" && it.parameterCount == 1 }
-                                  ?.invoke(ext, 36)
-                          } catch (e: Throwable) {
-                          }
-                      }
-                  }
-              }
-          }
-
-          """
-          if 'setCompileSdk' not in s:
-              if 'allprojects' in s:
-                  s = s.replace('allprojects', block + 'allprojects', 1)
-              else:
-                  s = block + s
-          open(f, 'w', encoding='utf-8').write(s)
-          PY
+      - name: Patch Android project (permissions, open-with, PiP, SDK)
+        run: python3 ci/patch.py
 
       - run: flutter pub get
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings lib
       - run: flutter build apk --release --split-per-abi
 
       - name: Rename APK

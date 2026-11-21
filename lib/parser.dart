@@ -75,3 +75,35 @@ Parsed parseName(String base) {
   if (title.isEmpty) title = base;
   return Parsed(title, year: year);
 }
+
+final _seasonDir = RegExp(
+    r'^(?:season|series|s|staffel|saison|temporada)\s*(\d{1,2})$',
+    caseSensitive: false);
+
+/// "Season 2" / "S02" / "Specials" folder name -> season number.
+int? seasonFromDir(String name) {
+  final n = name.replaceAll(RegExp(r'[._]'), ' ').trim();
+  if (RegExp(r'^specials?$', caseSensitive: false).hasMatch(n)) return 0;
+  final m = _seasonDir.firstMatch(n);
+  return m == null ? null : int.parse(m.group(1)!);
+}
+
+final _epOnly = <RegExp>[
+  RegExp(r'\b(?:e|ep|episode)\s?(\d{1,3})\b', caseSensitive: false),
+  RegExp(r'^(\d{1,3})(?=\s|-|$)'),
+];
+
+/// Episode number from names like "E05", "Ep 5 - Title", "05 Title".
+(int, String?)? episodeOnly(String base) {
+  var s = base.replaceAll(RegExp(r'[._]'), ' ');
+  s = s.replaceFirst(RegExp(r'^\s*[\[\(][^\]\)]*[\]\)]\s*'), '');
+  s = s.replaceAll(RegExp(r'[\[\]\(\)\{\}]'), ' ').replaceAll(_ws, ' ').trim();
+  for (final re in _epOnly) {
+    final m = re.firstMatch(s);
+    if (m != null) {
+      final sub = _clean(_cut(s.substring(m.end)));
+      return (int.parse(m.group(1)!), sub.isEmpty ? null : sub);
+    }
+  }
+  return null;
+}
