@@ -1091,7 +1091,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
               onVerticalDragStart: _vStart,
               onVerticalDragUpdate: _vUpdate,
               onVerticalDragEnd: (_) => _vMode = 0,
-              child: Stack(children: [
+              child: Stack(fit: StackFit.expand, children: [
                 Positioned.fill(child: IgnorePointer(child: videoView)),
                 if (buffering)
                   const IgnorePointer(child: Center(child: CircularProgressIndicator())),
