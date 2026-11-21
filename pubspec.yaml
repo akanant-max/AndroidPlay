@@ -15,7 +15,7 @@ dependencies:
   file_picker: ^8.1.2
   permission_handler: ^11.3.1
   wakelock_plus: ^1.2.8
-  screen_brightness: ^1.0.1
+  screen_brightness: ^2.1.0
   path_provider: ^2.1.4
   path: ^1.9.0
   image: ^4.2.0

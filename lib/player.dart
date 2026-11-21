@@ -146,7 +146,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     try {
-      ScreenBrightness().resetScreenBrightness();
+      ScreenBrightness.instance.resetApplicationScreenBrightness();
     } catch (_) {}
     thumbs.paused = false;
     thumbs.resume();
@@ -161,7 +161,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   Future<void> _initBrightness() async {
     try {
-      _br = await ScreenBrightness().current;
+      _br = await ScreenBrightness.instance.application;
     } catch (_) {}
   }
 
@@ -374,7 +374,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     if (_vMode == 1) {
       _br = (_br + f).clamp(0.0, 1.0).toDouble();
       try {
-        ScreenBrightness().setScreenBrightness(_br);
+        ScreenBrightness.instance.setApplicationScreenBrightness(_br);
       } catch (_) {}
       _flash('Brightness ${(_br * 100).round()}%', ms: 800);
     } else {
