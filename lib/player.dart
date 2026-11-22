@@ -726,11 +726,11 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     try {
       final b = await player.screenshot(format: 'image/png', includeLibassSubtitles: true);
       if (b == null) return;
-      final d = Directory('$internalRoot/Pictures/Reel')..createSync(recursive: true);
+      final d = Directory('$internalRoot/Pictures/AURA')..createSync(recursive: true);
       final safe = _item.name.replaceAll(RegExp(r'[^A-Za-z0-9 ]'), '');
       final f = File(p.join(d.path, '${safe}_${DateTime.now().millisecondsSinceEpoch}.png'));
       await f.writeAsBytes(b);
-      _flash('Saved to Pictures/Reel');
+      _flash('Saved to Pictures/AURA');
     } catch (_) {
       _flash('Could not save screenshot');
     }

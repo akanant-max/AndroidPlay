@@ -1,11 +1,11 @@
-# Reel (Android)
+# AURA (Android)
 
 Local-only video player and library. Plays everything libmpv plays (MKV, MP4, HEVC, AVI, ...), hardware decoding, smooth scrubbing on 1080p/4K.
 
 ## Get it built
 1. Create a GitHub repo (e.g. `reel-android`), upload everything in this folder (keep `.github/workflows/build.yml`).
-2. The Actions tab runs "Build Android APK" on every push. When it finishes, install `Reel.apk` from the new release (arm64, fits the OnePlus 11R).
-3. If an update refuses to install, uninstall the old Reel first (each CI run signs with a fresh debug key).
+2. The Actions tab runs "Build Android APK" on every push. When it finishes, install `AURA.apk` from the new release (arm64, fits the OnePlus 11R).
+3. Builds are signed with a permanent key (repo secrets), so new versions install over old ones.
 
 ## First run
 Library tab -> Add folder (allow "all files access" when asked) -> pick where your videos live.

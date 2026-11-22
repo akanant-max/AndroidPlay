@@ -14,7 +14,7 @@ Future<void> openBrowser(BuildContext c) async {
   if (!await ensureStorage()) {
     if (c.mounted) {
       ScaffoldMessenger.of(c).showSnackBar(const SnackBar(
-        content: Text('Allow "All files access" so Reel can see your videos'),
+        content: Text('Allow "All files access" so AURA can see your videos'),
       ));
     }
     return;
@@ -72,7 +72,7 @@ class SourcesPage extends StatelessWidget {
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
               child: Text(
-                'Reel only links to your files. Nothing is copied and nothing goes online.',
+                'AURA only links to your files. Nothing is copied and nothing goes online.',
                 style: TextStyle(color: Colors.white54, fontSize: 12),
               ),
             ),

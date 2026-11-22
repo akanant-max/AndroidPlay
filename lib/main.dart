@@ -26,7 +26,7 @@ Future<void> main() async {
     store.logError('$e\n$s');
     return true;
   };
-  runApp(const ReelApp());
+  runApp(const AuraApp());
   if (store.scanOnStart) unawaited(store.rescan());
   Native.opens.stream.listen(openExternal);
   final first = await Native.initial();
@@ -49,13 +49,13 @@ Future<void> openExternal(String uri) async {
   navKey.currentState?.push(MaterialPageRoute(builder: (_) => PlayerPage(queue: q, index: i)));
 }
 
-class ReelApp extends StatelessWidget {
-  const ReelApp({super.key});
+class AuraApp extends StatelessWidget {
+  const AuraApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Reel',
+      title: 'AURA',
       navigatorKey: navKey,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

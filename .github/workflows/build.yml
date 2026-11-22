@@ -44,7 +44,7 @@ jobs:
           if [ -n "$KS" ]; then
             echo "$KS" | base64 -d > "$RUNNER_TEMP/reel.jks"
             echo "REEL_KEYSTORE=$RUNNER_TEMP/reel.jks" >> "$GITHUB_ENV"
-            echo "Using the permanent Reel signing key"
+            echo "Using the permanent AURA signing key"
           else
             echo "::warning::No REEL_KEYSTORE_B64 secret - building with a throwaway debug key"
           fi
@@ -55,16 +55,16 @@ jobs:
         run: flutter build apk --release --split-per-abi --build-number=${{ github.run_number }} --build-name=1.0.${{ github.run_number }}
 
       - name: Rename APK
-        run: cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk Reel.apk
+        run: cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk AURA.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Reel-apk
-          path: Reel.apk
+          name: AURA.apk
+          path: AURA.apk
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
-          name: Reel build ${{ github.run_number }}
-          files: Reel.apk
+          name: AURA build ${{ github.run_number }}
+          files: AURA.apk

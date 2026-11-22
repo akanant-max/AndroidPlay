@@ -81,7 +81,7 @@ class HomePage extends StatelessWidget {
     }
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Reel'),
+        title: const Text('AURA'),
         actions: [
           IconButton(
             tooltip: 'Search',

@@ -20,7 +20,7 @@ perms = (
 )
 if 'MANAGE_EXTERNAL_STORAGE' not in s:
     s = s.replace('<application', perms + '<application', 1)
-s = s.replace('android:label="reel"', 'android:label="Reel"')
+s = s.replace('android:label="reel"', 'android:label="AURA"')
 
 if 'supportsPictureInPicture' not in s:
     s = s.replace(

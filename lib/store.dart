@@ -185,11 +185,11 @@ class Store extends ChangeNotifier {
       crashes++;
       if (libassOn) {
         libassOn = false;
-        crashNotice = 'The player closed unexpectedly last time, so Reel switched to simple subtitles. '
+        crashNotice = 'The player closed unexpectedly last time, so AURA switched to simple subtitles. '
             'You can turn the full subtitle renderer back on in Settings.';
       } else if (hwdec != 'mediacodec-copy' && hwdec != 'no') {
         hwdec = 'mediacodec-copy';
-        crashNotice = 'The player closed unexpectedly again, so Reel switched hardware decoding to '
+        crashNotice = 'The player closed unexpectedly again, so AURA switched hardware decoding to '
             '"MediaCodec copy". You can change it in Settings.';
       } else {
         crashNotice = 'The player closed unexpectedly again. Settings → Error log may show why.';
