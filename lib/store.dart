@@ -16,7 +16,7 @@ const videoExts = {
   'mts', 'mpg', 'mpeg', 'vob', 'ogv', '3gp', 'divx', 'asf', 'rmvb', 'f4v',
 };
 const subExts = {'srt', 'ass', 'ssa', 'vtt', 'sub', 'sup'};
-const speeds = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0];
+const speeds = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 2.75, 3.0, 4.0];
 
 final store = Store();
 
