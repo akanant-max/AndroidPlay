@@ -82,4 +82,28 @@ block = '''subprojects {
 if 'setCompileSdk' not in s:
     s = s.replace('allprojects', block + 'allprojects', 1) if 'allprojects' in s else block + s
 open(g, 'w', encoding='utf-8').write(s)
+# ---------------------------------------------------------------- signing
+# One permanent key (from repo secrets) so every build installs as an update.
+a = 'android/app/build.gradle.kts'
+s = open(a, encoding='utf-8').read()
+if 'REEL_KEYSTORE' not in s:
+    signing = '''    signingConfigs {
+        if (System.getenv("REEL_KEYSTORE") != null) {
+            create("reel") {
+                storeFile = file(System.getenv("REEL_KEYSTORE")!!)
+                storePassword = System.getenv("REEL_KEY_PASS")
+                keyAlias = "reel"
+                keyPassword = System.getenv("REEL_KEY_PASS")
+            }
+        }
+    }
+
+    buildTypes {'''
+    s = s.replace('    buildTypes {', signing, 1)
+    s = s.replace(
+        'signingConfig = signingConfigs.getByName("debug")',
+        'signingConfig = if (System.getenv("REEL_KEYSTORE") != null) signingConfigs.getByName("reel") else signingConfigs.getByName("debug")',
+        1,
+    )
+    open(a, 'w', encoding='utf-8').write(s)
 print('patched')
