@@ -1289,7 +1289,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
               child: Row(children: [
                 ib(Icons.arrow_back, () => Navigator.maybePop(context)),
                 Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(it.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
