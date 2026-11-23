@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import 'collections.dart';
+import 'folderview.dart';
 import 'models.dart';
 import 'settings.dart';
 import 'sources.dart';
@@ -175,12 +176,20 @@ class _HomePageState extends State<HomePage> {
                 if (recent.isNotEmpty) shelf('Recently added', recent),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                  child: OutlinedButton.icon(
-                    onPressed: () => Navigator.of(context)
-                        .push(MaterialPageRoute(builder: (_) => const AllVideosPage())),
-                    icon: const Icon(Icons.video_library_outlined),
-                    label: Text('All videos (${store.visible.length})'),
-                  ),
+                  child: Wrap(spacing: 10, runSpacing: 8, children: [
+                    OutlinedButton.icon(
+                      onPressed: () => Navigator.of(context)
+                          .push(MaterialPageRoute(builder: (_) => const AllVideosPage())),
+                      icon: const Icon(Icons.video_library_outlined),
+                      label: Text('All videos (${store.visible.length})'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => Navigator.of(context)
+                          .push(MaterialPageRoute(builder: (_) => const FolderViewPage())),
+                      icon: const Icon(Icons.account_tree_outlined),
+                      label: const Text('Browse by folder'),
+                    ),
+                  ]),
                 ),
                 if (!selecting)
                   const Padding(
@@ -271,6 +280,12 @@ class _AllVideosPageState extends State<AllVideosPage> {
                           for (final e in {0: 'Name', 1: 'Recently added', 2: 'Recently watched', 3: 'Size'}.entries)
                             CheckedPopupMenuItem(value: e.key, checked: sort == e.key, child: Text(e.value)),
                         ],
+                      ),
+                      IconButton(
+                        tooltip: 'Browse by folder',
+                        icon: const Icon(Icons.account_tree_outlined),
+                        onPressed: () => Navigator.of(context)
+                            .push(MaterialPageRoute(builder: (_) => const FolderViewPage())),
                       ),
                       const LayoutButton(),
                     ],

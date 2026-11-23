@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
+import 'folderview.dart';
 import 'models.dart';
 import 'pages.dart';
 import 'store.dart';
@@ -102,6 +103,14 @@ class _CollectionPageState extends State<CollectionPage> {
               subtitle: '${store.visible.length} videos · select, queue, delete',
               icon: Icons.video_library_outlined,
               onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AllVideosPage())),
+            ),
+          if (isRoot)
+            TileData(
+              id: 'disk',
+              title: 'Folders on disk',
+              subtitle: 'Your folders as they are on the device',
+              icon: Icons.account_tree_outlined,
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FolderViewPage())),
             ),
           for (final k in kids)
             TileData(
@@ -210,7 +219,7 @@ class _CollectionPageState extends State<CollectionPage> {
                     tiles: tiles,
                     selected: sel,
                     onSelect: (id) {
-                      if (id == 'queue' || id == 'all') return;
+                      if (id == 'queue' || id == 'all' || id == 'disk') return;
                       if (id.startsWith('coll:')) {
                         final k = store.coll(id.substring(5));
                         if (k != null && sel.isEmpty) _folderMenu(k);

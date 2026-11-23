@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
+import 'folderview.dart';
 import 'platform.dart';
 import 'player.dart';
 import 'store.dart';
@@ -87,6 +88,8 @@ class SourcesPage extends StatelessWidget {
                   icon: const Icon(Icons.delete_outline),
                   onPressed: () => store.removeFolder(f),
                 ),
+                onTap: () => Navigator.of(context)
+                    .push(MaterialPageRoute(builder: (_) => FolderViewPage(path: f))),
               ),
             if (quick.isNotEmpty)
               Padding(
