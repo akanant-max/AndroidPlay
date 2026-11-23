@@ -600,7 +600,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       _lastTap = now;
       if (side == 0) {
         _streakSide = 0;
-        player.playOrPause();
+        // PC: double-click = fullscreen; phone: double-tap = play/pause
+        if (isDesktop) {
+          _toggleFs();
+        } else {
+          player.playOrPause();
+        }
       } else {
         _streakSide = side;
         _seekBy(side * store.seekStep);
@@ -679,6 +684,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       autofocus: true,
       onKeyEvent: _key,
       child: Listener(
+        onPointerDown: (e) {
+          if (e.buttons & kMiddleMouseButton != 0) _nextChapter();
+        },
         onPointerSignal: (e) {
           if (e is PointerScrollEvent) {
             final up = e.scrollDelta.dy < 0;
@@ -777,6 +785,19 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     } finally {
       _pvBusy = false;
     }
+  }
+
+  void _nextChapter() {
+    final s = posN.value.inMilliseconds / 1000;
+    for (final c in chapters) {
+      if (c.time > s + 1) {
+        _seekTo(Duration(milliseconds: (c.time * 1000).round()));
+        _flash(c.title);
+        _poke();
+        return;
+      }
+    }
+    _flash(chapters.isEmpty ? 'No chapters' : 'Last chapter');
   }
 
   void _toggleFs() {

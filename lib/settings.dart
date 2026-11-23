@@ -200,7 +200,8 @@ class SettingsPage extends StatelessWidget {
   }
 }
 
-const desktopShortcuts = 'Click: show / hide controls    Double-click centre: play / pause    Double-click sides: 10 s back / forward\n'
+const desktopShortcuts = 'Click: show / hide controls    Double-click centre: fullscreen    Double-click sides: 10 s back / forward\n'
+    'Middle mouse button: next chapter\n'
     'F or Enter: fullscreen    Esc: exit fullscreen / back\n'
     'Space or K: play / pause\n'
     '← →: skip (Shift: 60 s, Ctrl: 3 s)    J / L: 10 s back / forward\n'
