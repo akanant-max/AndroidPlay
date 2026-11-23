@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -13,6 +15,10 @@ class SeekBar extends StatefulWidget {
   final VoidCallback onStart;
   final ValueChanged<Duration> onChanged;
   final ValueChanged<Duration> onEnd;
+  /// Called with the time under the mouse / finger (null when it leaves).
+  final ValueChanged<Duration?>? onHover;
+  /// Small preview frame for the hovered / dragged time.
+  final ValueListenable<Uint8List?>? preview;
   const SeekBar({
     super.key,
     required this.position,
@@ -21,6 +27,8 @@ class SeekBar extends StatefulWidget {
     required this.onStart,
     required this.onChanged,
     required this.onEnd,
+    this.onHover,
+    this.preview,
   });
 
   @override
@@ -28,7 +36,7 @@ class SeekBar extends StatefulWidget {
 }
 
 class _SeekBarState extends State<SeekBar> {
-  double? _drag;
+  double? _drag, _hover;
   double _w = 1;
 
   int get _ms => widget.duration.inMilliseconds;
@@ -44,6 +52,53 @@ class _SeekBarState extends State<SeekBar> {
     return name;
   }
 
+  Widget _bubble(double f) {
+    final t = _at(f);
+    final ch = _chapterAt(t);
+    const bw = 200.0;
+    return Positioned(
+      left: (f * _w - bw / 2).clamp(0.0, (_w - bw).clamp(0.0, double.infinity)).toDouble(),
+      bottom: 30,
+      width: bw,
+      child: IgnorePointer(
+        child: Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: const Color(0xEE111116),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            if (widget.preview != null)
+              ValueListenableBuilder<Uint8List?>(
+                valueListenable: widget.preview!,
+                builder: (_, img, __) => img == null
+                    ? const SizedBox.shrink()
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(7),
+                        child: AspectRatio(
+                          aspectRatio: 16 / 9,
+                          child: Image.memory(img,
+                              fit: BoxFit.cover, gaplessPlayback: true, cacheWidth: 400),
+                        ),
+                      ),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(6, 4, 6, 2),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Text(fmt(t), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                if (ch != null)
+                  Text(ch,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white70, fontSize: 11)),
+              ]),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
@@ -52,7 +107,18 @@ class _SeekBarState extends State<SeekBar> {
         : [for (final c in widget.chapters) c.time * 1000 / _ms];
     return LayoutBuilder(builder: (context, box) {
       _w = box.maxWidth;
-      return GestureDetector(
+      return MouseRegion(
+        onHover: _ms <= 0
+            ? null
+            : (e) {
+                setState(() => _hover = _frac(e.localPosition));
+                widget.onHover?.call(_at(_hover!));
+              },
+        onExit: (_) {
+          setState(() => _hover = null);
+          if (_drag == null) widget.onHover?.call(null);
+        },
+        child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onHorizontalDragStart: _ms <= 0
             ? null
@@ -60,12 +126,14 @@ class _SeekBarState extends State<SeekBar> {
                 setState(() => _drag = _frac(d.localPosition));
                 widget.onStart();
                 widget.onChanged(_at(_drag!));
+                widget.onHover?.call(_at(_drag!));
               },
         onHorizontalDragUpdate: _ms <= 0
             ? null
             : (d) {
                 setState(() => _drag = _frac(d.localPosition));
                 widget.onChanged(_at(_drag!));
+                widget.onHover?.call(_at(_drag!));
               },
         onHorizontalDragEnd: _ms <= 0
             ? null
@@ -73,6 +141,7 @@ class _SeekBarState extends State<SeekBar> {
                 final f = _drag;
                 setState(() => _drag = null);
                 if (f != null) widget.onEnd(_at(f));
+                if (_hover == null) widget.onHover?.call(null);
               },
         onTapUp: _ms <= 0
             ? null
@@ -97,35 +166,12 @@ class _SeekBarState extends State<SeekBar> {
                     ),
                   ),
                 ),
-                if (_drag != null)
-                  Positioned(
-                    left: (f * _w - 80).clamp(0.0, (_w - 160).clamp(0.0, double.infinity)).toDouble(),
-                    bottom: 30,
-                    width: 160,
-                    child: IgnorePointer(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xE6111116),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Column(mainAxisSize: MainAxisSize.min, children: [
-                          Text(fmt(_at(f)),
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-                          if (_chapterAt(_at(f)) != null)
-                            Text(_chapterAt(_at(f))!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                        ]),
-                      ),
-                    ),
-                  ),
+                if (_drag != null || _hover != null) _bubble(_drag ?? _hover!),
               ]);
             },
           ),
         ),
-      );
+      ));
     });
   }
 }

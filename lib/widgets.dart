@@ -519,6 +519,16 @@ Future<void> bulkSheet(BuildContext c, List<String> paths, {String? inColl, Void
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         ListTile(title: Text('${paths.length} selected')),
         ListTile(
+          leading: const Icon(Icons.queue_play_next),
+          title: const Text('Add to queue'),
+          onTap: () {
+            store.addToQueue(paths);
+            Navigator.pop(ctx);
+            done?.call();
+            ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text('Added ${paths.length} to queue')));
+          },
+        ),
+        ListTile(
           leading: const Icon(Icons.drive_file_move_outline),
           title: const Text('Add to folder'),
           onTap: () async {
@@ -630,6 +640,14 @@ Future<void> itemSheet(BuildContext c, Item i) {
             title: Text(pr?.watched == true ? 'Mark as unwatched' : 'Mark as watched'),
             onTap: () {
               store.markWatched(i.path, pr?.watched != true);
+              Navigator.pop(ctx);
+            },
+          ),
+          ListTile(
+            leading: Icon(store.queue.contains(i.path) ? Icons.playlist_remove : Icons.queue_play_next),
+            title: Text(store.queue.contains(i.path) ? 'Remove from queue' : 'Add to queue'),
+            onTap: () {
+              store.queue.contains(i.path) ? store.removeFromQueue([i.path]) : store.addToQueue([i.path]);
               Navigator.pop(ctx);
             },
           ),

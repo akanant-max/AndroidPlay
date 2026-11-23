@@ -86,6 +86,14 @@ class _CollectionPageState extends State<CollectionPage> {
         sel.removeWhere((x) => !items.any((i) => i.path == x));
         final selecting = sel.isNotEmpty;
         final tiles = <TileData>[
+          if (isRoot)
+            TileData(
+              id: 'queue',
+              title: 'Queue',
+              subtitle: '${store.queueItems.length} videos · your own playlist',
+              icon: Icons.queue_play_next,
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const QueuePage())),
+            ),
           for (final k in kids)
             TileData(
               id: 'coll:${k.id}',
@@ -193,6 +201,7 @@ class _CollectionPageState extends State<CollectionPage> {
                     tiles: tiles,
                     selected: sel,
                     onSelect: (id) {
+                      if (id == 'queue') return;
                       if (id.startsWith('coll:')) {
                         final k = store.coll(id.substring(5));
                         if (k != null && sel.isEmpty) _folderMenu(k);
@@ -272,6 +281,99 @@ class _PickVideosPageState extends State<PickVideosPage> {
           );
         },
       ),
+    );
+  }
+}
+
+
+/// The user's own play queue: reorder, remove, play from any point.
+class QueuePage extends StatelessWidget {
+  const QueuePage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) {
+        final items = store.queueItems;
+        var total = 0;
+        for (final i in items) {
+          total += store.durOf(i.path) ?? 0;
+        }
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Queue'),
+            actions: [
+              if (items.isNotEmpty)
+                IconButton(
+                  tooltip: 'Play all',
+                  icon: const Icon(Icons.playlist_play),
+                  onPressed: () => playItems(context, items, 0),
+                ),
+              if (items.isNotEmpty)
+                IconButton(
+                  tooltip: 'Clear queue',
+                  icon: const Icon(Icons.clear_all),
+                  onPressed: store.clearQueue,
+                ),
+            ],
+          ),
+          floatingActionButton: FloatingActionButton.extended(
+            onPressed: () async {
+              final picked = await Navigator.of(context).push<List<String>>(
+                MaterialPageRoute(builder: (_) => PickVideosPage(already: store.queue.toSet())),
+              );
+              if (picked != null && picked.isNotEmpty) store.addToQueue(picked);
+            },
+            icon: const Icon(Icons.playlist_add),
+            label: const Text('Add videos'),
+          ),
+          body: items.isEmpty
+              ? const EmptyState(
+                  Icons.queue_play_next,
+                  'Your queue is empty. Add videos here, or use "Add to queue" from any video\'s options.',
+                )
+              : Column(children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                    child: Row(children: [
+                      Text('${items.length} videos${total > 0 ? ' · ${fmt(Duration(milliseconds: total))}' : ''}',
+                          style: const TextStyle(color: Colors.white60)),
+                      const Spacer(),
+                      const Text('Drag to reorder', style: TextStyle(color: Colors.white38, fontSize: 12)),
+                    ]),
+                  ),
+                  Expanded(
+                    child: ReorderableListView.builder(
+                      padding: const EdgeInsets.only(bottom: 96),
+                      itemCount: items.length,
+                      onReorder: (a, b) => store.moveInQueue(a, b > a ? b - 1 : b),
+                      itemBuilder: (_, i) {
+                        final it = items[i];
+                        final (w, f) = itemWatch(it);
+                        final d = store.durOf(it.path);
+                        return ListTile(
+                          key: ValueKey(it.path),
+                          onTap: () => playItems(context, items, i),
+                          leading: SizedBox(width: 96, child: ArtThumb(item: it, watch: w, fraction: f)),
+                          title: Text(it.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(
+                            [if (it.isEpisode) it.detail, if (d != null) fmt(Duration(milliseconds: d))].join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: IconButton(
+                            tooltip: 'Remove',
+                            icon: const Icon(Icons.close),
+                            onPressed: () => store.removeFromQueue([it.path]),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ]),
+        );
+      },
     );
   }
 }

@@ -97,6 +97,8 @@ class Store extends ChangeNotifier {
   final Map<String, ShowMarks> marks = {};
   final Map<String, TrackPref> trackPrefs = {};
   final Map<String, int> durs = {};
+  /// The user's own play queue (paths), shown in the Folders tab.
+  final List<String> queue = [];
   bool scanning = false;
 
   // settings
@@ -115,7 +117,7 @@ class Store extends ChangeNotifier {
   int crashes = 0;
   String? crashNotice;
   int seekStep = 10, nextBeforeEnd = 60, gridSize = 1, movieSort = 0, showSort = 0;
-  double volume = 100, subScale = 1.0, defaultSpeed = 1.0;
+  double volume = 100, subScale = 1.0, defaultSpeed = 1.0, speedStep = 0;
 
   late String dir;
   late File _file;
@@ -139,6 +141,7 @@ class Store extends ChangeNotifier {
         colls.addAll([for (final c in (j['colls'] as List? ?? [])) Coll.fromJson(c as Map)]);
         ((j['marks'] as Map?) ?? {})
             .forEach((k, v) => marks[k as String] = ShowMarks.fromJson(v as Map));
+        queue.addAll(strs('queue'));
         ((j['durs'] as Map?) ?? {})
             .forEach((k, v) => durs[k as String] = (v as num).toInt());
         ((j['tracks'] as Map?) ?? {})
@@ -170,6 +173,7 @@ class Store extends ChangeNotifier {
         volume = gd('volume', volume);
         subScale = gd('subScale', subScale);
         defaultSpeed = gd('defaultSpeed', defaultSpeed);
+        speedStep = gd('speedStep', speedStep);
       }
     } catch (_) {}
     _index();
@@ -238,6 +242,7 @@ class Store extends ChangeNotifier {
         'marks': {for (final e in marks.entries) e.key: e.value.toJson()},
         'tracks': {for (final e in trackPrefs.entries) e.key: e.value.toJson()},
         'durs': durs,
+        'queue': queue,
         'settings': {
           'hwdec': hwdec, 'layout': layout, 'alang': alang, 'slang': slang,
           'fastScrub': fastScrub, 'autoNext': autoNext, 'thumbsOn': thumbsOn,
@@ -247,6 +252,7 @@ class Store extends ChangeNotifier {
           'seekStep': seekStep, 'nextBeforeEnd': nextBeforeEnd,
           'gridSize': gridSize, 'movieSort': movieSort, 'showSort': showSort,
           'volume': volume, 'subScale': subScale, 'defaultSpeed': defaultSpeed,
+          'speedStep': speedStep,
         },
       };
 
@@ -308,6 +314,33 @@ class Store extends ChangeNotifier {
 
   int? durOf(String path) => durs[path];
 
+  List<Item> get queueItems => [for (final x in queue) if (byPath[x] != null) byPath[x]!];
+
+  void addToQueue(Iterable<String> paths) {
+    for (final x in paths) {
+      if (!queue.contains(x)) queue.add(x);
+    }
+    touch();
+  }
+
+  void removeFromQueue(Iterable<String> paths) {
+    final s = paths.toSet();
+    queue.removeWhere(s.contains);
+    touch();
+  }
+
+  void moveInQueue(int from, int to) {
+    if (from < 0 || from >= queue.length) return;
+    final x = queue.removeAt(from);
+    queue.insert(to.clamp(0, queue.length), x);
+    touch();
+  }
+
+  void clearQueue() {
+    queue.clear();
+    touch();
+  }
+
   void setDur(String path, int ms) {
     if (ms <= 0 || durs[path] == ms) return;
     durs[path] = ms;
@@ -329,6 +362,7 @@ class Store extends ChangeNotifier {
       files.remove(x);
       progress.remove(x);
       durs.remove(x);
+      queue.remove(x);
       hidden.remove(x);
       for (final c in colls) {
         c.items.remove(x);

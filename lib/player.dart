@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -17,7 +18,7 @@ import 'sources.dart';
 import 'store.dart';
 import 'thumbs.dart';
 
-enum _P { subs, audio, speed, chapters, more, sleep, marks, info }
+enum _P { subs, audio, speed, chapters, more, sleep, marks, info, queue }
 
 class _Seg {
   final double start, end;
@@ -78,12 +79,22 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   final subs = <StreamSubscription>[];
   late int idx;
+  late final List<Item> queue = List.of(widget.queue);
   final posN = ValueNotifier<Duration>(Duration.zero);
   final osdN = ValueNotifier<String?>(null);
   final ui = ValueNotifier<bool>(true);
   final skipN = ValueNotifier<_Skip?>(null);
   final clockN = ValueNotifier<String>(_clock(DateTime.now()));
   final focus = FocusNode();
+  double? _lastRate;
+  ScrollController? _queueCtl;
+  // seek-bar preview frames (a second, silent player)
+  Player? _pv;
+  String? _pvPath;
+  final pvN = ValueNotifier<Uint8List?>(null);
+  Timer? _pvT;
+  Duration? _pvWant;
+  bool _pvBusy = false;
   bool fs = false;
   double _preMute = 100;
   Timer? clockT;
@@ -129,8 +140,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     if (mounted) setState(f);
   }
 
-  Item get _item => widget.queue[idx];
-  bool get _hasNext => idx + 1 < widget.queue.length;
+  Item get _item => queue[idx];
+  bool get _hasNext => idx + 1 < queue.length;
 
   // ------------------------------------------------------------ lifecycle
 
@@ -213,11 +224,13 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     for (final s in subs) {
       s.cancel();
     }
-    for (final t in [hideT, saveT, osdT, sleepT, _tgtT, _pendingTap, clockT, _wheelT]) {
+    for (final t in [hideT, saveT, osdT, sleepT, _tgtT, _pendingTap, clockT, _wheelT, _pvT]) {
       t?.cancel();
     }
     Native.setAutoPip(false, 16 / 9);
     player.dispose();
+    _pv?.dispose();
+    _queueCtl?.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     try {
@@ -538,6 +551,10 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   }
 
   void _openPanel(_P p) {
+    if (p == _P.queue) {
+      _queueCtl?.dispose();
+      _queueCtl = ScrollController(initialScrollOffset: ((idx - 2) * 52.0).clamp(0.0, double.infinity));
+    }
     _ss(() => panel = panel == p ? null : p);
     hideT?.cancel();
     ui.value = true;
@@ -554,7 +571,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   bool _inControls(Offset o) {
     if (panel != null && o.dx > _w - 372) return true;
     if (!ui.value) return false;
-    return o.dy < 76 + _pad.top || o.dy > _h - 140 - _pad.bottom;
+    final k = isDesktop ? 1.3 : 1.0;
+    return o.dy < 76 * k + _pad.top || o.dy > _h - 140 * k - _pad.bottom;
   }
 
   void _onTapUp(TapUpDetails d) {
@@ -565,20 +583,6 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     }
     if (locked) {
       _toggleUi();
-      return;
-    }
-    if (isDesktop) {
-      // click = play/pause, double-click = fullscreen
-      final t = DateTime.now();
-      if (t.difference(_lastTap).inMilliseconds < 320) {
-        _lastTap = DateTime(2000);
-        player.playOrPause();
-        _toggleFs();
-      } else {
-        _lastTap = t;
-        player.playOrPause();
-      }
-      _poke();
       return;
     }
     final now = DateTime.now();
@@ -716,6 +720,65 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     });
   }
 
+  void _previewAt(Duration? t) {
+    if (t == null) {
+      _pvT?.cancel();
+      return;
+    }
+    _pvWant = t;
+    _pvT?.cancel();
+    _pvT = Timer(const Duration(milliseconds: 80), _pvRun);
+  }
+
+  Future<void> _pvRun() async {
+    if (!mounted) return;
+    if (_pvBusy) {
+      _pvT = Timer(const Duration(milliseconds: 60), _pvRun);
+      return;
+    }
+    final t = _pvWant;
+    if (t == null) return;
+    _pvBusy = true;
+    try {
+      if (_pv == null || _pvPath != _item.path) {
+        final old = _pv;
+        _pv = null;
+        await old?.dispose();
+        final pv = Player(configuration: PlayerConfiguration(bufferSize: 8 * 1024 * 1024));
+        VideoController(pv,
+            configuration: VideoControllerConfiguration(enableHardwareAcceleration: false, hwdec: 'no'));
+        await pv.setVolume(0);
+        final n = pv.platform;
+        if (n is NativePlayer) {
+          for (final kv in {'hr-seek': 'no', 'aid': 'no', 'sid': 'no', 'vf': 'scale=480:-2'}.entries) {
+            try {
+              await n.setProperty(kv.key, kv.value);
+            } catch (_) {}
+          }
+        }
+        await pv.open(Media(_item.path), play: false);
+        try {
+          await pv.stream.duration.firstWhere((d) => d > Duration.zero).timeout(const Duration(seconds: 6));
+        } catch (_) {}
+        _pv = pv;
+        _pvPath = _item.path;
+      }
+      final pv = _pv!;
+      await pv.seek(t);
+      try {
+        await pv.stream.position
+            .firstWhere((p) => (p - t).inSeconds.abs() < 15)
+            .timeout(const Duration(milliseconds: 700));
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      final b = await pv.screenshot(format: 'image/jpeg');
+      if (b != null && mounted) pvN.value = b;
+    } catch (_) {
+    } finally {
+      _pvBusy = false;
+    }
+  }
+
   void _toggleFs() {
     fs = !fs;
     setFullscreen(fs);
@@ -747,12 +810,20 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _flash('Audio: ${_label(t, 'Audio')}');
   }
 
-  void _stepSpeed(int dir) {
-    var i = speeds.indexWhere((s) => s >= rate - 0.001);
-    if (i < 0) i = speeds.length - 1;
-    if (dir > 0 && speeds[i] <= rate + 0.001) i++;
-    if (dir < 0) i--;
-    final v = speeds[i.clamp(0, speeds.length - 1)];
+  /// Presets by default; [fine] (Shift, or the panel stepper) moves 0.05×.
+  void _stepSpeed(int dir, {bool fine = false}) {
+    final step = fine ? 0.05 : store.speedStep;
+    double v;
+    if (step <= 0) {
+      var i = speeds.indexWhere((s) => s >= rate - 0.001);
+      if (i < 0) i = speeds.length - 1;
+      if (dir > 0 && speeds[i] <= rate + 0.001) i++;
+      if (dir < 0) i--;
+      v = speeds[i.clamp(0, speeds.length - 1)];
+    } else {
+      v = ((rate / step).round() + dir) * step;
+      v = (v.clamp(0.1, 4.0) * 100).round() / 100;
+    }
     player.setRate(v);
     _flash('$v×');
   }
@@ -810,12 +881,22 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     } else if (k == LogicalKeyboardKey.bracketLeft ||
         k == LogicalKeyboardKey.numpadSubtract ||
         k == LogicalKeyboardKey.minus) {
-      _stepSpeed(-1);
+      _stepSpeed(-1, fine: shift);
     } else if (k == LogicalKeyboardKey.bracketRight ||
         k == LogicalKeyboardKey.numpadAdd ||
         k == LogicalKeyboardKey.equal ||
         k == LogicalKeyboardKey.add) {
-      _stepSpeed(1);
+      _stepSpeed(1, fine: shift);
+    } else if (k == LogicalKeyboardKey.keyG) {
+      if (rep) return KeyEventResult.handled;
+      if ((rate - 1.0).abs() > 0.001) {
+        _lastRate = rate;
+        player.setRate(1.0);
+        _flash('1.0×  (G again for ${rate}×)');
+      } else if (_lastRate != null) {
+        player.setRate(_lastRate!);
+        _flash('${_lastRate}×');
+      }
     } else if (k == LogicalKeyboardKey.numpadMultiply) {
       player.setRate(1.0);
       _flash('1.0×');
@@ -1091,6 +1172,13 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
             player.setRate(v);
             _flash('$v×');
           }),
+          _stepper('Fine', '${rate.toStringAsFixed(2)}×', () {
+            _stepSpeed(-1, fine: true);
+            _ss(() {});
+          }, () {
+            _stepSpeed(1, fine: true);
+            _ss(() {});
+          }),
           _row('Make ${rate}× the default', icon: Icons.push_pin_outlined, onTap: () {
             store.update(() => store.defaultSpeed = rate);
             _flash('Default speed: ${rate}×');
@@ -1152,6 +1240,16 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
             _buildSegs();
             _ss(() {});
           }),
+        ]);
+      case _P.queue:
+        return ('Playlist · ${queue.length}', [
+          for (var i = 0; i < queue.length; i++) _queueRow(i),
+          if (!store.queue.contains(_item.path))
+            _row('Add this to my Queue', icon: Icons.queue_play_next, onTap: () {
+              store.addToQueue([_item.path]);
+              _flash('Added to Queue');
+              _ss(() {});
+            }),
         ]);
       case _P.info:
         return ('Playback info', [
@@ -1219,12 +1317,55 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     }
   }
 
+  Widget _queueRow(int i) {
+    final it = queue[i];
+    final cur = i == idx;
+    final accent = Theme.of(context).colorScheme.primary;
+    final d = store.durOf(it.path) ?? (cur && dur > Duration.zero ? dur.inMilliseconds : null);
+    final watched = store.prog(it.path)?.watched == true;
+    return Material(
+      color: cur ? accent.withOpacity(0.16) : Colors.transparent,
+      child: ListTile(
+        dense: true,
+        visualDensity: VisualDensity.compact,
+        leading: SizedBox(
+          width: 26,
+          child: cur
+              ? Icon(Icons.play_arrow, color: accent, size: 20)
+              : Text('${i + 1}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: watched ? Colors.white38 : Colors.white70)),
+        ),
+        title: Text(
+          it.isEpisode ? '${it.epLabel}${it.sub != null ? ' · ${it.sub}' : ''}' : it.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: cur ? accent : (watched ? Colors.white54 : Colors.white),
+            fontWeight: cur ? FontWeight.w700 : FontWeight.w400,
+          ),
+        ),
+        trailing: Text(d == null ? '' : fmt(Duration(milliseconds: d)),
+            style: const TextStyle(color: Colors.white60, fontSize: 12)),
+        onTap: cur
+            ? null
+            : () {
+                _save();
+                _open(i);
+                _ss(() {});
+              },
+      ),
+    );
+  }
+
   Widget _panel() {
     final which = panel;
     if (which == null) return const SizedBox.shrink();
     final (title, children) = _panelContent(which);
+    final low = which == _P.queue;
     return Positioned(
-      top: _pad.top + 64,
+      top: low ? null : _pad.top + 64,
+      bottom: low ? _pad.bottom + (isDesktop ? 150 : 124) : null,
       right: 12 + _pad.right,
       child: Material(
         color: const Color(0xF21A1A21),
@@ -1232,9 +1373,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         clipBehavior: Clip.antiAlias,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            maxWidth: 340,
+            maxWidth: low ? 420 : 340,
             minWidth: 240,
-            maxHeight: (_h - _pad.top - 64 - 24).clamp(120.0, 900.0).toDouble(),
+            maxHeight: (_h - _pad.top - (low ? 200 : 88)).clamp(120.0, 900.0).toDouble(),
           ),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Padding(
@@ -1249,6 +1390,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
             Flexible(
               child: ListView(
                 shrinkWrap: true,
+                controller: low ? _queueCtl : null,
                 padding: const EdgeInsets.only(bottom: 8),
                 children: children,
               ),
@@ -1347,26 +1489,21 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                     ),
                   ),
                 ),
-                // faint clock, only while the controls are hidden
-                ValueListenableBuilder<bool>(
-                  valueListenable: ui,
-                  builder: (_, on, __) => on
-                      ? const SizedBox.shrink()
-                      : Positioned(
-                          top: _pad.top + 6,
-                          right: _pad.right + 14,
-                          child: IgnorePointer(
-                            child: ValueListenableBuilder<String>(
-                              valueListenable: clockN,
-                              builder: (_, t, __) => Text(t,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.white.withOpacity(0.35),
-                                    fontWeight: FontWeight.w500,
-                                  )),
-                            ),
-                          ),
-                        ),
+                // tiny persistent clock, bottom-left
+                Positioned(
+                  left: _pad.left + 10,
+                  bottom: _pad.bottom + 4,
+                  child: IgnorePointer(
+                    child: ValueListenableBuilder<String>(
+                      valueListenable: clockN,
+                      builder: (_, t, __) => Text(t,
+                          style: TextStyle(
+                            fontSize: isDesktop ? 11 : 10,
+                            color: Colors.white.withOpacity(0.35),
+                            fontWeight: FontWeight.w500,
+                          )),
+                    ),
+                  ),
                 ),
                 _skipButton(),
                 _panel(),
@@ -1438,11 +1575,13 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   Widget _controls() {
     const white = Colors.white;
     final it = _item;
-    final multi = widget.queue.length > 1;
+    final multi = queue.length > 1;
     final wide = _w >= 600;
+    final k = isDesktop ? 1.3 : 1.0;
     Widget ib(IconData i, VoidCallback? f, {String? tip, bool active = false}) => IconButton(
           tooltip: tip,
-          visualDensity: VisualDensity.compact,
+          iconSize: 24 * k,
+          visualDensity: isDesktop ? VisualDensity.standard : VisualDensity.compact,
           icon: Icon(i, color: f == null ? Colors.white24 : (active ? Theme.of(context).colorScheme.primary : white)),
           onPressed: f,
         );
@@ -1478,6 +1617,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         child: Text('$rate×',
             style: TextStyle(
                 color: panel == _P.speed ? Theme.of(context).colorScheme.primary : white,
+                fontSize: 14 * k,
                 fontWeight: FontWeight.w700)),
       ),
       if (isDesktop) ...[
@@ -1516,7 +1656,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                     Text(it.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: white, fontSize: 16, fontWeight: FontWeight.w600)),
+                        style: TextStyle(color: white, fontSize: 16 * k, fontWeight: FontWeight.w600)),
                     ValueListenableBuilder<Duration>(
                       valueListenable: posN,
                       builder: (_, pos, __) {
@@ -1528,7 +1668,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                         return Text(parts.join('  ·  '),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white70, fontSize: 12));
+                            style: TextStyle(color: Colors.white70, fontSize: 12 * k));
                       },
                     ),
                   ]),
@@ -1562,26 +1702,29 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                   onStart: _scrubStart,
                   onChanged: _scrubUpdate,
                   onEnd: _scrubEnd,
+                  onHover: _previewAt,
+                  preview: pvN,
                 ),
                 ValueListenableBuilder<Duration>(
                   valueListenable: posN,
                   builder: (_, pos, __) {
                     final ch = _chapterNow(pos);
                     return Row(children: [
-                      Text(fmt(pos), style: const TextStyle(color: white, fontSize: 12)),
+                      Text(fmt(pos), style: TextStyle(color: white, fontSize: 12 * k)),
                       Expanded(
                         child: Text(ch ?? '',
                             textAlign: TextAlign.center,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                            style: TextStyle(color: Colors.white60, fontSize: 12 * k)),
                       ),
                       Text('-${fmt(dur - pos < Duration.zero ? Duration.zero : dur - pos)}',
-                          style: const TextStyle(color: white, fontSize: 12)),
+                          style: TextStyle(color: white, fontSize: 12 * k)),
                     ]);
                   },
                 ),
-                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Row(children: [
+                  const Expanded(child: SizedBox()),
                   if (multi)
                     ib(Icons.skip_previous, idx > 0
                         ? () {
@@ -1592,7 +1735,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                   ib(Icons.fast_rewind, () => _seekBy(-store.seekStep)),
                   const SizedBox(width: 8),
                   IconButton.filled(
-                    iconSize: 34,
+                    iconSize: 34 * k,
                     icon: Icon(playing ? Icons.pause : Icons.play_arrow),
                     onPressed: () {
                       player.playOrPause();
@@ -1608,6 +1751,13 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                             _open(idx + 1);
                           }
                         : null),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: ib(Icons.playlist_play, () => _openPanel(_P.queue),
+                          tip: 'Playlist', active: panel == _P.queue),
+                    ),
+                  ),
                 ]),
               ]),
             ),

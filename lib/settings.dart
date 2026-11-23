@@ -58,6 +58,10 @@ class SettingsPage extends StatelessWidget {
             drop<int>('Double-tap skip', store.seekStep,
                 {for (final s in [5, 10, 15, 30]) s: '$s s'}, (v) => store.seekStep = v),
             if (isDesktop)
+              drop<double>('Speed step for + − keys', store.speedStep,
+                  {0.0: 'Presets', 0.1: '0.1×', 0.05: '0.05×'}, (v) => store.speedStep = v,
+                  sub: 'Hold Shift for 0.05× steps any time'),
+            if (isDesktop)
               drop<bool>('Mouse wheel', store.wheelSeek,
                   {false: 'Volume', true: 'Seek (scrub)'}, (v) => store.wheelSeek = v,
                   sub: 'Scroll over the video to change volume or move through it (5 s per notch)'),
@@ -196,11 +200,12 @@ class SettingsPage extends StatelessWidget {
   }
 }
 
-const desktopShortcuts = 'Click: play / pause    Double-click or F: fullscreen    Esc: exit fullscreen / back\n'
+const desktopShortcuts = 'Click: show / hide controls    Double-click centre: play / pause    Double-click sides: 10 s back / forward\n'
+    'F or Enter: fullscreen    Esc: exit fullscreen / back\n'
     'Space or K: play / pause\n'
     '← →: skip (Shift: 60 s, Ctrl: 3 s)    J / L: 10 s back / forward\n'
     '↑ ↓: volume    Mouse wheel: volume or seek (see Settings)    M: mute\n'
-    '[ ]  or  − +  (numpad too): slower / faster    \\ or numpad *: normal speed\n'
+    '[ ]  or  − +  (numpad too): slower / faster, Shift for fine 0.05×    G: 1× and back    \\ or numpad *: normal speed\n'
     'S: next subtitle    A: next audio track    C: chapters    I: playback info\n'
     'N / P: next / previous episode    , .: frame back / forward (paused)\n'
     '0–9: jump to 0–90%    Ctrl+S: screenshot\n'
