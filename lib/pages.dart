@@ -27,17 +27,43 @@ class _ShellState extends State<Shell> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(children: [
-        ListenableBuilder(
-          listenable: store,
-          builder: (_, __) => SizedBox(
-            height: 2,
-            child: store.scanning ? const LinearProgressIndicator() : null,
-          ),
+    final wide = MediaQuery.of(context).size.width >= 900;
+    final body = Column(children: [
+      ListenableBuilder(
+        listenable: store,
+        builder: (_, __) => SizedBox(
+          height: 2,
+          child: store.scanning ? const LinearProgressIndicator() : null,
         ),
-        Expanded(child: IndexedStack(index: tab, children: _pages)),
-      ]),
+      ),
+      Expanded(child: IndexedStack(index: tab, children: _pages)),
+    ]);
+    if (wide) {
+      return Scaffold(
+        body: Row(children: [
+          NavigationRail(
+            selectedIndex: tab,
+            onDestinationSelected: (i) => setState(() => tab = i),
+            labelType: NavigationRailLabelType.all,
+            backgroundColor: const Color(0xFF14141A),
+            leading: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Text('AURA', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 2)),
+            ),
+            destinations: const [
+              NavigationRailDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: Text('Home')),
+              NavigationRailDestination(icon: Icon(Icons.movie_outlined), selectedIcon: Icon(Icons.movie), label: Text('Movies')),
+              NavigationRailDestination(icon: Icon(Icons.tv_outlined), selectedIcon: Icon(Icons.tv), label: Text('Shows')),
+              NavigationRailDestination(icon: Icon(Icons.folder_special_outlined), selectedIcon: Icon(Icons.folder_special), label: Text('Folders')),
+              NavigationRailDestination(icon: Icon(Icons.storage_outlined), selectedIcon: Icon(Icons.storage), label: Text('Sources')),
+            ],
+          ),
+          Expanded(child: body),
+        ]),
+      );
+    }
+    return Scaffold(
+      body: body,
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: (i) => setState(() => tab = i),

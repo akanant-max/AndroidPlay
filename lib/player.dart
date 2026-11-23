@@ -10,6 +10,7 @@ import 'package:screen_brightness/screen_brightness.dart';
 
 import 'models.dart';
 import 'native.dart';
+import 'platform.dart';
 import 'seekbar.dart';
 import 'sources.dart';
 import 'store.dart';
@@ -81,6 +82,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   final ui = ValueNotifier<bool>(true);
   final skipN = ValueNotifier<_Skip?>(null);
   final clockN = ValueNotifier<String>(_clock(DateTime.now()));
+  final focus = FocusNode();
+  bool fs = false;
+  double _preMute = 100;
   Timer? clockT;
 
   Duration dur = Duration.zero;
@@ -198,6 +202,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     store.playerStarted();
+    if (fs) setFullscreen(false);
+    setWindowTitle('AURA');
+    focus.dispose();
     _save();
     store.volume = _vol;
     store.flush();
@@ -387,6 +394,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     final gen = ++_gen;
     idx = i;
     final it = _item;
+    setWindowTitle('${it.isEpisode ? '${it.name} ${it.epLabel}' : it.name} — AURA');
     _ready = false;
     _prefApplied = false;
     _autoSkipped.clear();
@@ -558,6 +566,20 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       _toggleUi();
       return;
     }
+    if (isDesktop) {
+      // click = play/pause, double-click = fullscreen
+      final t = DateTime.now();
+      if (t.difference(_lastTap).inMilliseconds < 320) {
+        _lastTap = DateTime(2000);
+        player.playOrPause();
+        _toggleFs();
+      } else {
+        _lastTap = t;
+        player.playOrPause();
+      }
+      _poke();
+      return;
+    }
     final now = DateTime.now();
     final side = pos.dx < _w / 3 ? -1 : (pos.dx > _w * 2 / 3 ? 1 : 0);
     if (_streakSide != 0 && side == _streakSide && now.difference(_lastTap).inMilliseconds < 700) {
@@ -609,7 +631,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   }
 
   void _vStart(DragStartDetails d) {
-    _vMode = (locked || _inControls(d.localPosition)) ? 0 : (d.localPosition.dx < _w / 2 ? 1 : 2);
+    _vMode = (isDesktop || locked || _inControls(d.localPosition)) ? 0 : (d.localPosition.dx < _w / 2 ? 1 : 2);
   }
 
   void _vUpdate(DragUpdateDetails d) {
@@ -641,6 +663,170 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _boosting = false;
     player.setRate(_preBoost);
     osdN.value = null;
+  }
+
+  // ------------------------------------------------------------ desktop
+
+  Widget _desktopWrap(Widget child) {
+    if (!isDesktop) return child;
+    return Focus(
+      focusNode: focus,
+      autofocus: true,
+      onKeyEvent: _key,
+      child: Listener(
+        onPointerSignal: (e) {
+          if (e is PointerScrollEvent) {
+            _setVolume(_vol + (e.scrollDelta.dy < 0 ? 5 : -5));
+          }
+        },
+        child: ValueListenableBuilder<bool>(
+          valueListenable: ui,
+          builder: (context, on, c) => MouseRegion(
+            cursor: (!on && playing && panel == null) ? SystemMouseCursors.none : MouseCursor.defer,
+            onHover: (_) => _poke(),
+            child: c,
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  void _toggleFs() {
+    fs = !fs;
+    setFullscreen(fs);
+    _ss(() {});
+    focus.requestFocus();
+  }
+
+  void _setVolume(double v) {
+    _vol = v.clamp(0.0, 130.0).toDouble();
+    player.setVolume(_vol);
+    _flash('Volume ${_vol.round()}%', ms: 800);
+  }
+
+  void _cycleSub() {
+    final list = player.state.tracks.subtitle.where((t) => t.id != 'auto').toList();
+    if (list.isEmpty) return;
+    final i = list.indexWhere((t) => t.id == player.state.track.subtitle.id);
+    final t = list[(i + 1) % list.length];
+    _pickSub(t);
+    _flash('Subtitles: ${_label(t, 'Subtitle')}');
+  }
+
+  void _cycleAudio() {
+    final list = player.state.tracks.audio.where((t) => t.id != 'auto' && t.id != 'no').toList();
+    if (list.length < 2) return;
+    final i = list.indexWhere((t) => t.id == player.state.track.audio.id);
+    final t = list[(i + 1) % list.length];
+    _pickAudio(t);
+    _flash('Audio: ${_label(t, 'Audio')}');
+  }
+
+  void _stepSpeed(int dir) {
+    var i = speeds.indexWhere((s) => s >= rate - 0.001);
+    if (i < 0) i = speeds.length - 1;
+    if (dir > 0 && speeds[i] <= rate + 0.001) i++;
+    if (dir < 0) i--;
+    final v = speeds[i.clamp(0, speeds.length - 1)];
+    player.setRate(v);
+    _flash('$v×');
+  }
+
+  void _frame(bool back) {
+    final n = player.platform;
+    if (n is NativePlayer) n.command([back ? 'frame-back-step' : 'frame-step']);
+  }
+
+  static final _digits = [
+    LogicalKeyboardKey.digit0, LogicalKeyboardKey.digit1, LogicalKeyboardKey.digit2,
+    LogicalKeyboardKey.digit3, LogicalKeyboardKey.digit4, LogicalKeyboardKey.digit5,
+    LogicalKeyboardKey.digit6, LogicalKeyboardKey.digit7, LogicalKeyboardKey.digit8,
+    LogicalKeyboardKey.digit9,
+  ];
+
+  KeyEventResult _key(FocusNode n, KeyEvent e) {
+    if (e is KeyUpEvent) return KeyEventResult.ignored;
+    final k = e.logicalKey;
+    final rep = e is KeyRepeatEvent;
+    final shift = HardwareKeyboard.instance.isShiftPressed;
+    final ctrl = HardwareKeyboard.instance.isControlPressed;
+    if (k == LogicalKeyboardKey.space || k == LogicalKeyboardKey.keyK) {
+      if (!rep) player.playOrPause();
+    } else if (k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.arrowRight) {
+      final step = shift ? 60 : (ctrl ? 3 : store.seekStep);
+      _seekBy(k == LogicalKeyboardKey.arrowRight ? step : -step);
+    } else if (k == LogicalKeyboardKey.keyJ) {
+      _seekBy(-10);
+    } else if (k == LogicalKeyboardKey.keyL) {
+      _seekBy(10);
+    } else if (k == LogicalKeyboardKey.arrowUp) {
+      _setVolume(_vol + 5);
+    } else if (k == LogicalKeyboardKey.arrowDown) {
+      _setVolume(_vol - 5);
+    } else if (k == LogicalKeyboardKey.keyM) {
+      if (rep) return KeyEventResult.handled;
+      if (_vol > 0) {
+        _preMute = _vol;
+        _setVolume(0);
+        _flash('Muted');
+      } else {
+        _setVolume(_preMute);
+      }
+    } else if (k == LogicalKeyboardKey.keyF || k == LogicalKeyboardKey.enter) {
+      if (!rep) _toggleFs();
+    } else if (k == LogicalKeyboardKey.escape) {
+      if (panel != null) {
+        _closePanel();
+      } else if (fs) {
+        _toggleFs();
+      } else {
+        Navigator.maybePop(context);
+      }
+    } else if (k == LogicalKeyboardKey.bracketLeft) {
+      _stepSpeed(-1);
+    } else if (k == LogicalKeyboardKey.bracketRight) {
+      _stepSpeed(1);
+    } else if (k == LogicalKeyboardKey.backslash) {
+      player.setRate(1.0);
+      _flash('1.0×');
+    } else if (k == LogicalKeyboardKey.keyS && ctrl) {
+      if (!rep) _shot();
+    } else if (k == LogicalKeyboardKey.keyS) {
+      if (!rep) _cycleSub();
+    } else if (k == LogicalKeyboardKey.keyA) {
+      if (!rep) _cycleAudio();
+    } else if (k == LogicalKeyboardKey.keyN) {
+      if (!rep && _hasNext) {
+        _save();
+        _open(idx + 1);
+      }
+    } else if (k == LogicalKeyboardKey.keyP) {
+      if (!rep && idx > 0) {
+        _save();
+        _open(idx - 1);
+      }
+    } else if (k == LogicalKeyboardKey.period) {
+      _frame(false);
+    } else if (k == LogicalKeyboardKey.comma) {
+      _frame(true);
+    } else if (k == LogicalKeyboardKey.keyC) {
+      if (!rep && chapters.isNotEmpty) _openPanel(_P.chapters);
+    } else if (k == LogicalKeyboardKey.keyI) {
+      if (!rep) {
+        _loadInfo();
+        _openPanel(_P.info);
+      }
+    } else if (_digits.contains(k)) {
+      if (dur > Duration.zero) {
+        final d = _digits.indexOf(k);
+        _seekTo(Duration(milliseconds: dur.inMilliseconds * d ~/ 10));
+      }
+    } else {
+      return KeyEventResult.ignored;
+    }
+    _poke();
+    return KeyEventResult.handled;
   }
 
   // ------------------------------------------------------------ tracks
@@ -710,7 +896,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     final path = await Navigator.of(context).push<String>(MaterialPageRoute(
       builder: (_) => BrowserPage(
         mode: BrowseMode.subtitle,
-        start: _item.path.startsWith('/') ? p.dirname(_item.path) : null,
+        start: File(_item.path).existsSync() ? p.dirname(_item.path) : null,
       ),
     ));
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -726,11 +912,11 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     try {
       final b = await player.screenshot(format: 'image/png', includeLibassSubtitles: true);
       if (b == null) return;
-      final d = Directory('$internalRoot/Pictures/AURA')..createSync(recursive: true);
+      final d = Directory(screenshotDir())..createSync(recursive: true);
       final safe = _item.name.replaceAll(RegExp(r'[^A-Za-z0-9 ]'), '');
       final f = File(p.join(d.path, '${safe}_${DateTime.now().millisecondsSinceEpoch}.png'));
       await f.writeAsBytes(b);
-      _flash('Saved to Pictures/AURA');
+      _flash('Saved to Pictures${Platform.pathSeparator}AURA');
     } catch (_) {
       _flash('Could not save screenshot');
     }
@@ -984,10 +1170,11 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
               _poke();
             }),
           ],
-          _row('Picture in picture', icon: Icons.picture_in_picture_alt_outlined, onTap: () {
-            _closePanel();
-            Native.enterPip();
-          }),
+          if (!isDesktop)
+            _row('Picture in picture', icon: Icons.picture_in_picture_alt_outlined, onTap: () {
+              _closePanel();
+              Native.enterPip();
+            }),
           _row('Save screenshot', icon: Icons.photo_camera_outlined, onTap: () {
             _closePanel();
             _shot();
@@ -1080,7 +1267,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
           body: LayoutBuilder(builder: (context, box) {
             _w = box.maxWidth;
             _h = box.maxHeight;
-            return GestureDetector(
+            return _desktopWrap(GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTapUp: _onTapUp,
               onLongPressStart: _lpStart,
@@ -1152,7 +1339,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                 _skipButton(),
                 _panel(),
               ]),
-            );
+            ));
           }),
         );
       },
@@ -1261,7 +1448,11 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                 color: panel == _P.speed ? Theme.of(context).colorScheme.primary : white,
                 fontWeight: FontWeight.w700)),
       ),
-      if (wide) ...[
+      if (isDesktop) ...[
+        ib(fit == BoxFit.contain ? Icons.fit_screen_outlined : (fit == BoxFit.cover ? Icons.zoom_out_map : Icons.aspect_ratio),
+            cycleFit, tip: 'Zoom'),
+        ib(fs ? Icons.fullscreen_exit : Icons.fullscreen, _toggleFs, tip: 'Fullscreen (F)'),
+      ] else if (wide) ...[
         ib(fit == BoxFit.contain ? Icons.fit_screen_outlined : (fit == BoxFit.cover ? Icons.zoom_out_map : Icons.aspect_ratio),
             cycleFit, tip: 'Zoom'),
         ib(landscapeLock ? Icons.screen_lock_landscape : Icons.screen_rotation, rotate, tip: 'Rotation'),

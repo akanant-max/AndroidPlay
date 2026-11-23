@@ -3,12 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
+import 'platform.dart';
 import 'player.dart';
 import 'store.dart';
 import 'thumbs.dart';
 import 'widgets.dart';
 
-const internalRoot = '/storage/emulated/0';
 
 Future<void> openBrowser(BuildContext c) async {
   if (!await ensureStorage()) {
@@ -27,12 +27,6 @@ Future<void> openBrowser(BuildContext c) async {
 class SourcesPage extends StatelessWidget {
   const SourcesPage({super.key});
 
-  static const _quick = [
-    '$internalRoot/Movies',
-    '$internalRoot/Download',
-    '$internalRoot/DCIM',
-    '$internalRoot/Videos',
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +34,7 @@ class SourcesPage extends StatelessWidget {
       listenable: Listenable.merge([store, thumbs]),
       builder: (context, _) {
         final quick = [
-          for (final d in _quick)
+          for (final d in quickFolders())
             if (!store.folders.contains(d) && Directory(d).existsSync()) d
         ];
         return Scaffold(
@@ -84,7 +78,7 @@ class SourcesPage extends StatelessWidget {
                 leading: const Icon(Icons.folder_outlined),
                 title: Text(p.basename(f).isEmpty ? f : p.basename(f)),
                 subtitle: Text(
-                  '${f.replaceFirst(internalRoot, 'Phone')}\n'
+                  '${prettyPath(f)}\n'
                   '${store.items.where((i) => p.isWithin(f, i.path)).length} videos'
                   '${Directory(f).existsSync() ? '' : ' · not found'}',
                 ),
@@ -113,7 +107,7 @@ class SourcesPage extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.movie_outlined),
                 title: Text(p.basename(f), maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: Text(p.dirname(f).replaceFirst(internalRoot, 'Phone'),
+                subtitle: Text(prettyPath(p.dirname(f)),
                     maxLines: 1, overflow: TextOverflow.ellipsis),
                 trailing: IconButton(
                   icon: const Icon(Icons.delete_outline),
@@ -164,19 +158,10 @@ class _BrowserPageState extends State<BrowserPage> {
   void initState() {
     super.initState();
     final s = widget.start;
-    _go(s != null && Directory(s).existsSync() ? s : internalRoot);
+    _go(s != null && Directory(s).existsSync() ? s : defaultBrowseStart());
   }
 
-  List<String> _roots() {
-    final out = <String>[internalRoot];
-    try {
-      for (final e in Directory('/storage').listSync()) {
-        final n = p.basename(e.path);
-        if (e is Directory && n != 'emulated' && n != 'self') out.add(e.path);
-      }
-    } catch (_) {}
-    return out;
-  }
+  List<String> _roots() => storageRoots();
 
   void _go(String? d) {
     setState(() {
@@ -186,7 +171,10 @@ class _BrowserPageState extends State<BrowserPage> {
       if (d == null) return;
       try {
         final all = Directory(d).listSync(followLinks: false);
-        final dirs = all.whereType<Directory>().where((x) => !p.basename(x.path).startsWith('.')).toList()
+        final dirs = all.whereType<Directory>().where((x) {
+          final n = p.basename(x.path);
+          return !n.startsWith('.') && !n.startsWith(r'$') && n != 'System Volume Information';
+        }).toList()
           ..sort((a, b) => naturalCompare(p.basename(a.path), p.basename(b.path)));
         final fs = all.whereType<File>().where((x) {
           final ext = p.extension(x.path).toLowerCase().replaceFirst('.', '');
@@ -212,11 +200,7 @@ class _BrowserPageState extends State<BrowserPage> {
     return true;
   }
 
-  String _label(String d) => d == internalRoot
-      ? 'Phone storage'
-      : d.startsWith('$internalRoot/')
-          ? 'Phone / ${d.substring(internalRoot.length + 1)}'
-          : d;
+  String _label(String d) => prettyPath(d);
 
   @override
   Widget build(BuildContext context) {
@@ -229,7 +213,7 @@ class _BrowserPageState extends State<BrowserPage> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(_subs ? 'Pick subtitle file' : (d == null ? 'Storage' : _label(d)),
+          title: Text(_subs ? 'Pick subtitle file' : (d == null ? (isDesktop ? 'This PC' : 'Storage') : _label(d)),
               maxLines: 1, overflow: TextOverflow.ellipsis),
           actions: [
             if (!_subs && sel.isNotEmpty)
@@ -275,8 +259,8 @@ class _BrowserPageState extends State<BrowserPage> {
             ? ListView(children: [
                 for (final r in _roots())
                   ListTile(
-                    leading: Icon(r == internalRoot ? Icons.smartphone : Icons.sd_card_outlined),
-                    title: Text(r == internalRoot ? 'Phone storage' : 'SD card / USB (${p.basename(r)})'),
+                    leading: Icon(isMainRoot(r) ? (isDesktop ? Icons.computer : Icons.smartphone) : Icons.sd_card_outlined),
+                    title: Text(rootLabel(r)),
                     onTap: () => _go(r),
                   ),
               ])

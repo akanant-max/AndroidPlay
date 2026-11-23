@@ -26,12 +26,14 @@ bool isVideo(String path) =>
     videoExts.contains(p.extension(path).toLowerCase().replaceFirst('.', ''));
 
 Future<bool> hasStorage() async {
+  if (!Platform.isAndroid) return true;
   if (await Permission.manageExternalStorage.isGranted) return true;
   if (await Permission.videos.isGranted) return true;
   return Permission.storage.isGranted;
 }
 
 Future<bool> ensureStorage() async {
+  if (!Platform.isAndroid) return true;
   if (await hasStorage()) return true;
   if ((await Permission.manageExternalStorage.request()).isGranted) return true;
   final r = await [Permission.videos, Permission.storage].request();
@@ -402,6 +404,7 @@ class Store extends ChangeNotifier {
               if (e is! File) continue;
               final path = e.path;
               if (path.contains('${p.separator}.') ||
+                  path.contains('${p.separator}\$') ||
                   path.contains('${p.separator}Android${p.separator}')) {
                 continue;
               }

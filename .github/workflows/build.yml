@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build AURA (Android + Windows)
 
 on:
   push:
@@ -68,3 +68,52 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: AURA build ${{ github.run_number }}
           files: AURA.apk
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create Windows runner
+        shell: bash
+        run: |
+          if [ ! -d windows ]; then
+            flutter create . --platforms=windows --project-name reel --org dev.reel
+            rm -rf test
+          fi
+          python ci/patch_windows.py
+
+      - run: flutter pub get
+
+      - name: Build
+        run: flutter build windows --release --build-number=${{ github.run_number }} --build-name=1.0.${{ github.run_number }}
+
+      - name: Package (zip + installer)
+        shell: pwsh
+        run: |
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath AURA-Windows-portable.zip
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc "/DMyVersion=1.0.${{ github.run_number }}" ci\aura.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AURA-windows
+          path: |
+            AURA-Setup.exe
+            AURA-Windows-portable.zip
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: AURA build ${{ github.run_number }}
+          files: |
+            AURA-Setup.exe
+            AURA-Windows-portable.zip

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'platform.dart';
 import 'store.dart';
 import 'thumbs.dart';
 
@@ -56,14 +57,23 @@ class SettingsPage extends StatelessWidget {
                 sub: 'Used when the file has no credits chapter'),
             drop<int>('Double-tap skip', store.seekStep,
                 {for (final s in [5, 10, 15, 30]) s: '$s s'}, (v) => store.seekStep = v),
-            sw('Open videos in landscape', store.landscape, (v) => store.landscape = v),
-            sw('Picture-in-picture when leaving the app', store.autoPip, (v) => store.autoPip = v),
-            drop<String>('Hardware decoding', store.hwdec, {
-              'auto-safe': 'Auto',
-              'mediacodec': 'MediaCodec',
-              'mediacodec-copy': 'MediaCodec copy',
-              'no': 'Software',
-            }, (v) => store.hwdec = v, sub: 'Change only if a video stutters or shows green'),
+            if (!isDesktop) ...[
+              sw('Open videos in landscape', store.landscape, (v) => store.landscape = v),
+              sw('Picture-in-picture when leaving the app', store.autoPip, (v) => store.autoPip = v),
+            ],
+            drop<String>('Hardware decoding', store.hwdec, isDesktop
+                ? {
+                    'auto-safe': 'Auto',
+                    'd3d11va': 'D3D11',
+                    'd3d11va-copy': 'D3D11 copy',
+                    'no': 'Software',
+                  }
+                : {
+                    'auto-safe': 'Auto',
+                    'mediacodec': 'MediaCodec',
+                    'mediacodec-copy': 'MediaCodec copy',
+                    'no': 'Software',
+                  }, (v) => store.hwdec = v, sub: 'Change only if a video stutters or shows green'),
             sw('Always use fast seeking', store.fastScrub, (v) => store.fastScrub = v,
                 sub: 'Jumps to the nearest keyframe. Dragging the bar is always fast.'),
             head('Subtitles and audio'),
@@ -161,18 +171,18 @@ class SettingsPage extends StatelessWidget {
                 );
               },
             ),
-            head('Player gestures'),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 4, 16, 32),
+            head(isDesktop ? 'Player shortcuts' : 'Player gestures'),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
               child: Text(
-                'Tap: show or hide controls\n'
+                isDesktop ? desktopShortcuts : 'Tap: show or hide controls\n'
                 'Double-tap left or right: skip back or forward (keep tapping to skip more)\n'
                 'Double-tap middle: play or pause\n'
                 'Swipe left or right: scrub\n'
                 'Swipe up or down on the left: brightness\n'
                 'Swipe up or down on the right: volume (up to 130%)\n'
                 'Press and hold: 2× speed while held',
-                style: TextStyle(color: Colors.white60, height: 1.5),
+                style: const TextStyle(color: Colors.white60, height: 1.5),
               ),
             ),
           ]),
@@ -181,3 +191,13 @@ class SettingsPage extends StatelessWidget {
     );
   }
 }
+
+const desktopShortcuts = 'Click: play / pause    Double-click or F: fullscreen    Esc: exit fullscreen / back\n'
+    'Space or K: play / pause\n'
+    '← →: skip (Shift: 60 s, Ctrl: 3 s)    J / L: 10 s back / forward\n'
+    '↑ ↓ or mouse wheel: volume    M: mute\n'
+    '[ ]: slower / faster    \\: normal speed\n'
+    'S: next subtitle    A: next audio track    C: chapters    I: playback info\n'
+    'N / P: next / previous episode    , .: frame back / forward (paused)\n'
+    '0–9: jump to 0–90%    Ctrl+S: screenshot\n'
+    'Drag across the video: scrub    Hold mouse: 2× speed';

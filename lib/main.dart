@@ -8,14 +8,16 @@ import 'package:media_kit/media_kit.dart';
 import 'models.dart';
 import 'native.dart';
 import 'pages.dart';
+import 'platform.dart';
 import 'player.dart';
 import 'store.dart';
 
 final navKey = GlobalKey<NavigatorState>();
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
+  await initWindow();
   Native.init();
   await store.load();
   FlutterError.onError = (d) {
@@ -29,6 +31,11 @@ Future<void> main() async {
   runApp(const AuraApp());
   if (store.scanOnStart) unawaited(store.rescan());
   Native.opens.stream.listen(openExternal);
+  // Windows "Open with": the file path arrives as an argument.
+  final argFile = args.where((a) => File(a).existsSync()).firstOrNull;
+  if (argFile != null) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => openExternal(argFile));
+  }
   final first = await Native.initial();
   if (first != null) {
     WidgetsBinding.instance.addPostFrameCallback((_) => openExternal(first));
@@ -37,7 +44,8 @@ Future<void> main() async {
 
 /// Play a video handed over by another app ("Open with").
 Future<void> openExternal(String uri) async {
-  final (path, name) = await Native.resolve(uri);
+  final (String?, String?) r = File(uri).existsSync() ? (uri, null) : await Native.resolve(uri);
+  final (path, name) = r;
   List<Item> q;
   int i;
   if (path != null && File(path).existsSync()) {
