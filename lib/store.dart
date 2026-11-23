@@ -110,7 +110,8 @@ class Store extends ChangeNotifier {
       autoSkipIntro = false,
       autoPip = true,
       subBox = false,
-      libassOn = true;
+      libassOn = true,
+      wheelSeek = false;
   int crashes = 0;
   String? crashNotice;
   int seekStep = 10, nextBeforeEnd = 60, gridSize = 1, movieSort = 0, showSort = 0;
@@ -159,6 +160,7 @@ class Store extends ChangeNotifier {
         autoPip = g('autoPip', autoPip);
         subBox = g('subBox', subBox);
         libassOn = g('libassOn', libassOn);
+        wheelSeek = g('wheelSeek', wheelSeek);
         crashes = g('crashes', crashes);
         seekStep = g('seekStep', seekStep);
         nextBeforeEnd = g('nextBeforeEnd', nextBeforeEnd);
@@ -241,7 +243,7 @@ class Store extends ChangeNotifier {
           'fastScrub': fastScrub, 'autoNext': autoNext, 'thumbsOn': thumbsOn,
           'scanOnStart': scanOnStart, 'resume': resume, 'landscape': landscape,
           'autoSkipIntro': autoSkipIntro, 'autoPip': autoPip, 'subBox': subBox,
-          'libassOn': libassOn, 'crashes': crashes,
+          'libassOn': libassOn, 'crashes': crashes, 'wheelSeek': wheelSeek,
           'seekStep': seekStep, 'nextBeforeEnd': nextBeforeEnd,
           'gridSize': gridSize, 'movieSort': movieSort, 'showSort': showSort,
           'volume': volume, 'subScale': subScale, 'defaultSpeed': defaultSpeed,

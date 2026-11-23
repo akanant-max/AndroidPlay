@@ -213,7 +213,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     for (final s in subs) {
       s.cancel();
     }
-    for (final t in [hideT, saveT, osdT, sleepT, _tgtT, _pendingTap, clockT]) {
+    for (final t in [hideT, saveT, osdT, sleepT, _tgtT, _pendingTap, clockT, _wheelT]) {
       t?.cancel();
     }
     Native.setAutoPip(false, 16 / 9);
@@ -677,7 +677,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       child: Listener(
         onPointerSignal: (e) {
           if (e is PointerScrollEvent) {
-            _setVolume(_vol + (e.scrollDelta.dy < 0 ? 5 : -5));
+            final up = e.scrollDelta.dy < 0;
+            if (store.wheelSeek) {
+              _wheelSeek(up ? 5 : -5);
+            } else {
+              _setVolume(_vol + (up ? 5 : -5));
+            }
           }
         },
         child: ValueListenableBuilder<bool>(
@@ -691,6 +696,24 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  /// Mouse-wheel scrubbing: fast keyframe seeks while the wheel moves,
+  /// then one exact seek when it stops.
+  Timer? _wheelT;
+  void _wheelSeek(int secs) {
+    if (dur == Duration.zero) return;
+    if (!scrubbing) _scrubStart();
+    _tgtT?.cancel();
+    final t = _clampD((_tgt ?? posN.value) + Duration(seconds: secs));
+    _tgt = t;
+    _scrubUpdate(t);
+    _flash('${fmt(t)} / ${fmt(dur)}', ms: 900);
+    _wheelT?.cancel();
+    _wheelT = Timer(const Duration(milliseconds: 350), () {
+      _tgt = null;
+      _scrubEnd(t);
+    });
   }
 
   void _toggleFs() {
@@ -784,10 +807,18 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       } else {
         Navigator.maybePop(context);
       }
-    } else if (k == LogicalKeyboardKey.bracketLeft) {
+    } else if (k == LogicalKeyboardKey.bracketLeft ||
+        k == LogicalKeyboardKey.numpadSubtract ||
+        k == LogicalKeyboardKey.minus) {
       _stepSpeed(-1);
-    } else if (k == LogicalKeyboardKey.bracketRight) {
+    } else if (k == LogicalKeyboardKey.bracketRight ||
+        k == LogicalKeyboardKey.numpadAdd ||
+        k == LogicalKeyboardKey.equal ||
+        k == LogicalKeyboardKey.add) {
       _stepSpeed(1);
+    } else if (k == LogicalKeyboardKey.numpadMultiply) {
+      player.setRate(1.0);
+      _flash('1.0×');
     } else if (k == LogicalKeyboardKey.backslash) {
       player.setRate(1.0);
       _flash('1.0×');

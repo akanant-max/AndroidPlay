@@ -57,6 +57,10 @@ class SettingsPage extends StatelessWidget {
                 sub: 'Used when the file has no credits chapter'),
             drop<int>('Double-tap skip', store.seekStep,
                 {for (final s in [5, 10, 15, 30]) s: '$s s'}, (v) => store.seekStep = v),
+            if (isDesktop)
+              drop<bool>('Mouse wheel', store.wheelSeek,
+                  {false: 'Volume', true: 'Seek (scrub)'}, (v) => store.wheelSeek = v,
+                  sub: 'Scroll over the video to change volume or move through it (5 s per notch)'),
             if (!isDesktop) ...[
               sw('Open videos in landscape', store.landscape, (v) => store.landscape = v),
               sw('Picture-in-picture when leaving the app', store.autoPip, (v) => store.autoPip = v),
@@ -195,8 +199,8 @@ class SettingsPage extends StatelessWidget {
 const desktopShortcuts = 'Click: play / pause    Double-click or F: fullscreen    Esc: exit fullscreen / back\n'
     'Space or K: play / pause\n'
     '← →: skip (Shift: 60 s, Ctrl: 3 s)    J / L: 10 s back / forward\n'
-    '↑ ↓ or mouse wheel: volume    M: mute\n'
-    '[ ]: slower / faster    \\: normal speed\n'
+    '↑ ↓: volume    Mouse wheel: volume or seek (see Settings)    M: mute\n'
+    '[ ]  or  − +  (numpad too): slower / faster    \\ or numpad *: normal speed\n'
     'S: next subtitle    A: next audio track    C: chapters    I: playback info\n'
     'N / P: next / previous episode    , .: frame back / forward (paused)\n'
     '0–9: jump to 0–90%    Ctrl+S: screenshot\n'
