@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
+import 'collections.dart';
 import 'models.dart';
+import 'pages.dart';
 import 'platform.dart';
 import 'store.dart';
 import 'thumbs.dart';
@@ -25,7 +27,10 @@ class _FolderViewPageState extends State<FolderViewPage> {
     return ListenableBuilder(
       listenable: store,
       builder: (context, _) {
-        final root = widget.path;
+        final isHome = widget.path == null;
+        // only one folder added and no single files: open it straight away
+        final root = widget.path ??
+            (store.folders.length == 1 && store.files.isEmpty ? store.folders.first : null);
         final dirs = <String, List<Item>>{}; // child folder -> videos under it
         final files = <Item>[];
         if (root == null) {
@@ -58,6 +63,30 @@ class _FolderViewPageState extends State<FolderViewPage> {
         final selecting = sel.isNotEmpty;
 
         final tiles = <TileData>[
+          if (isHome) ...[
+            TileData(
+              id: 'x:queue',
+              title: 'Queue',
+              subtitle: '${store.queueItems.length} videos · your playlist',
+              icon: Icons.queue_play_next,
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const QueuePage())),
+            ),
+            TileData(
+              id: 'x:mine',
+              title: 'My folders',
+              subtitle: '${store.childrenOf(null).length} custom folders',
+              icon: Icons.folder_special_outlined,
+              onTap: () => Navigator.of(context)
+                  .push(MaterialPageRoute(builder: (_) => const CollectionPage(id: null))),
+            ),
+            TileData(
+              id: 'x:all',
+              title: 'All videos',
+              subtitle: '${store.visible.length} videos',
+              icon: Icons.video_library_outlined,
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AllVideosPage())),
+            ),
+          ],
           for (final d in dirKeys)
             TileData(
               id: 'dir:$d',
@@ -76,7 +105,7 @@ class _FolderViewPageState extends State<FolderViewPage> {
                 onTap: () => playItems(context, files, files.indexOf(i))),
         ];
 
-        final title = root == null ? 'Folders on disk' : (p.basename(root).isEmpty ? root : p.basename(root));
+        final title = isHome ? 'Folders' : (p.basename(root!).isEmpty ? root : p.basename(root));
         return PopScope(
           canPop: !selecting,
           onPopInvokedWithResult: (_, __) {
@@ -114,13 +143,15 @@ class _FolderViewPageState extends State<FolderViewPage> {
                       const LayoutButton(),
                     ],
                   ),
-            body: tiles.isEmpty
+            body: store.items.isEmpty && isHome
+                ? const EmptyState(Icons.folder_open, 'Add a folder in the Sources tab and it shows up here, organised the way it is on disk.')
+                : tiles.isEmpty
                 ? const EmptyState(Icons.folder_open, 'No videos here.')
                 : TilesView(
                     tiles: tiles,
                     selected: sel,
                     onSelect: (id) {
-                      if (id.startsWith('dir:')) return;
+                      if (id.startsWith('dir:') || id.startsWith('x:')) return;
                       setState(() => sel.contains(id) ? sel.remove(id) : sel.add(id));
                     },
                   ),

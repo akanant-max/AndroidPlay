@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import 'models.dart';
+import 'platform.dart';
 import 'player.dart';
 import 'store.dart';
 import 'thumbs.dart';
@@ -177,6 +178,8 @@ class TileData {
   final double fraction;
   final IconData? icon;
   final VoidCallback onTap;
+  /// Set for single videos: enables the ⋮ options button.
+  final Item? item;
   const TileData({
     required this.id,
     required this.title,
@@ -187,8 +190,22 @@ class TileData {
     this.fraction = 0,
     this.icon,
     required this.onTap,
+    this.item,
   });
 }
+
+/// Small ⋮ button that opens a video's options.
+Widget optionsButton(BuildContext c, Item it) => SizedBox(
+      width: 28,
+      height: 28,
+      child: IconButton(
+        tooltip: 'Options',
+        padding: EdgeInsets.zero,
+        iconSize: 18,
+        icon: const Icon(Icons.more_vert, color: Colors.white60),
+        onPressed: () => itemSheet(c, it),
+      ),
+    );
 
 TileData itemTile(BuildContext c, Item i, {String? subtitle, VoidCallback? onTap}) {
   final (w, f) = itemWatch(i);
@@ -199,6 +216,7 @@ TileData itemTile(BuildContext c, Item i, {String? subtitle, VoidCallback? onTap
     art: i,
     watch: w,
     fraction: f,
+    item: i,
     onTap: onTap ?? () => playItem(c, i),
   );
 }
@@ -214,7 +232,8 @@ class MediaCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      onLongPress: onLong,
+      onLongPress: isDesktop ? null : onLong,
+      onSecondaryTap: isDesktop ? onLong : null,
       borderRadius: BorderRadius.circular(10),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         ArtThumb(
@@ -222,15 +241,22 @@ class MediaCard extends StatelessWidget {
           icon: t.icon, selected: selected,
         ),
         const SizedBox(height: 6),
-        Text(t.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-        if (t.subtitle != null)
-          Text(t.subtitle!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, color: Colors.white54)),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(t.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              if (t.subtitle != null)
+                Text(t.subtitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: Colors.white54)),
+            ]),
+          ),
+          if (t.item != null) optionsButton(context, t.item!),
+        ]),
       ]),
     );
   }
@@ -262,7 +288,8 @@ class TilesView extends StatelessWidget {
           final t = tiles[i];
           return InkWell(
             onTap: () => tap(t),
-            onLongPress: () => onSelect(t.id),
+            onLongPress: isDesktop ? null : () => onSelect(t.id),
+            onSecondaryTap: isDesktop ? () => onSelect(t.id) : null,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(children: [
@@ -287,6 +314,7 @@ class TilesView extends StatelessWidget {
                           style: const TextStyle(fontSize: 12, color: Colors.white54)),
                   ]),
                 ),
+                if (t.item != null) optionsButton(context, t.item!),
               ]),
             ),
           );

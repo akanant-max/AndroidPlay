@@ -88,30 +88,6 @@ class _CollectionPageState extends State<CollectionPage> {
         sel.removeWhere((x) => !items.any((i) => i.path == x));
         final selecting = sel.isNotEmpty;
         final tiles = <TileData>[
-          if (isRoot)
-            TileData(
-              id: 'queue',
-              title: 'Queue',
-              subtitle: '${store.queueItems.length} videos · your own playlist',
-              icon: Icons.queue_play_next,
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const QueuePage())),
-            ),
-          if (isRoot)
-            TileData(
-              id: 'all',
-              title: 'All videos',
-              subtitle: '${store.visible.length} videos · select, queue, delete',
-              icon: Icons.video_library_outlined,
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AllVideosPage())),
-            ),
-          if (isRoot)
-            TileData(
-              id: 'disk',
-              title: 'Folders on disk',
-              subtitle: 'Your folders as they are on the device',
-              icon: Icons.account_tree_outlined,
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FolderViewPage())),
-            ),
           for (final k in kids)
             TileData(
               id: 'coll:${k.id}',

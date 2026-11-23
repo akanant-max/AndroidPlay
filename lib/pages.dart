@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'collections.dart';
 import 'folderview.dart';
 import 'models.dart';
+import 'platform.dart';
 import 'settings.dart';
 import 'sources.dart';
 import 'store.dart';
@@ -22,7 +23,7 @@ class _ShellState extends State<Shell> {
     HomePage(),
     LibraryPage(shows: false),
     LibraryPage(shows: true),
-    CollectionPage(id: null),
+    FolderViewPage(),
     SourcesPage(),
   ];
 
@@ -192,10 +193,10 @@ class _HomePageState extends State<HomePage> {
                   ]),
                 ),
                 if (!selecting)
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16, 10, 16, 0),
-                    child: Text('Tip: long-press a video to select several.',
-                        style: TextStyle(color: Colors.white38, fontSize: 12)),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                    child: Text(isDesktop ? 'Tip: right-click a video to select several.' : 'Tip: long-press a video to select several.',
+                        style: const TextStyle(color: Colors.white38, fontSize: 12)),
                   ),
               ]);
             }),
@@ -700,7 +701,8 @@ class _ShowPageState extends State<ShowPage> {
             : fmtSize(e.size);
     return InkWell(
       onTap: () => playItems(context, all, all.indexOf(e)),
-      onLongPress: () => itemSheet(context, e),
+      onLongPress: isDesktop ? null : () => itemSheet(context, e),
+      onSecondaryTap: isDesktop ? () => itemSheet(context, e) : null,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         child: Row(children: [
@@ -725,6 +727,7 @@ class _ShowPageState extends State<ShowPage> {
             ),
             onPressed: () => store.markWatched(e.path, pr?.watched != true),
           ),
+          optionsButton(context, e),
         ]),
       ),
     );
