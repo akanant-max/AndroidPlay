@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import 'models.dart';
+import 'pages.dart';
 import 'store.dart';
 import 'widgets.dart';
 
@@ -93,6 +94,14 @@ class _CollectionPageState extends State<CollectionPage> {
               subtitle: '${store.queueItems.length} videos · your own playlist',
               icon: Icons.queue_play_next,
               onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const QueuePage())),
+            ),
+          if (isRoot)
+            TileData(
+              id: 'all',
+              title: 'All videos',
+              subtitle: '${store.visible.length} videos · select, queue, delete',
+              icon: Icons.video_library_outlined,
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AllVideosPage())),
             ),
           for (final k in kids)
             TileData(
@@ -201,7 +210,7 @@ class _CollectionPageState extends State<CollectionPage> {
                     tiles: tiles,
                     selected: sel,
                     onSelect: (id) {
-                      if (id == 'queue') return;
+                      if (id == 'queue' || id == 'all') return;
                       if (id.startsWith('coll:')) {
                         final k = store.coll(id.substring(5));
                         if (k != null && sel.isEmpty) _folderMenu(k);

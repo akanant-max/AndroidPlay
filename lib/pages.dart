@@ -90,8 +90,16 @@ Widget rescanButton() => ListenableBuilder(
 
 // ---------------------------------------------------------------- Home
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  final sel = <String>{};
+
+  void _toggle(String id) => setState(() => sel.contains(id) ? sel.remove(id) : sel.add(id));
 
   @override
   Widget build(BuildContext context) {
@@ -105,52 +113,178 @@ class HomePage extends StatelessWidget {
         ));
       });
     }
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('AURA'),
-        actions: [
-          IconButton(
-            tooltip: 'Search',
-            icon: const Icon(Icons.search),
-            onPressed: () => Navigator.of(context)
-                .push(MaterialPageRoute(builder: (_) => const SearchPage())),
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) {
+        sel.removeWhere((x) => !store.byPath.containsKey(x));
+        final selecting = sel.isNotEmpty;
+        return PopScope(
+          canPop: !selecting,
+          onPopInvokedWithResult: (_, __) {
+            if (selecting) setState(sel.clear);
+          },
+          child: Scaffold(
+            appBar: selecting
+                ? selectionBar(context, sel, clear: () => setState(sel.clear))
+                : AppBar(
+                    title: const Text('AURA'),
+                    actions: [
+                      IconButton(
+                        tooltip: 'Search',
+                        icon: const Icon(Icons.search),
+                        onPressed: () => Navigator.of(context)
+                            .push(MaterialPageRoute(builder: (_) => const SearchPage())),
+                      ),
+                      IconButton(
+                        tooltip: 'All videos',
+                        icon: const Icon(Icons.video_library_outlined),
+                        onPressed: () => Navigator.of(context)
+                            .push(MaterialPageRoute(builder: (_) => const AllVideosPage())),
+                      ),
+                      rescanButton(),
+                      IconButton(
+                        tooltip: 'Settings',
+                        icon: const Icon(Icons.settings_outlined),
+                        onPressed: () => Navigator.of(context)
+                            .push(MaterialPageRoute(builder: (_) => const SettingsPage())),
+                      ),
+                    ],
+                  ),
+            body: Builder(builder: (context) {
+              if (store.items.isEmpty) {
+                return EmptyState(
+                  Icons.video_library_outlined,
+                  'Add a folder or some files and your movies and shows appear here.',
+                  action: FilledButton.icon(
+                    onPressed: () => openBrowser(context),
+                    icon: const Icon(Icons.create_new_folder_outlined),
+                    label: const Text('Add videos'),
+                  ),
+                );
+              }
+              final cont = store.continueWatching();
+              final next = store.nextUp();
+              final recent = store.recent();
+              final q = store.queueItems;
+              Shelf shelf(String t, List<Item> l) => Shelf(t, [for (final i in l) itemTile(context, i)],
+                  selected: sel, onSelect: _toggle);
+              return ListView(padding: const EdgeInsets.only(bottom: 16), children: [
+                if (cont.isNotEmpty) shelf('Continue watching', cont),
+                if (next.isNotEmpty) shelf('Next up', next),
+                if (q.isNotEmpty) shelf('Queue', q),
+                if (recent.isNotEmpty) shelf('Recently added', recent),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context)
+                        .push(MaterialPageRoute(builder: (_) => const AllVideosPage())),
+                    icon: const Icon(Icons.video_library_outlined),
+                    label: Text('All videos (${store.visible.length})'),
+                  ),
+                ),
+                if (!selecting)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 10, 16, 0),
+                    child: Text('Tip: long-press a video to select several.',
+                        style: TextStyle(color: Colors.white38, fontSize: 12)),
+                  ),
+              ]);
+            }),
           ),
-          rescanButton(),
-          IconButton(
-            tooltip: 'Settings',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.of(context)
-                .push(MaterialPageRoute(builder: (_) => const SettingsPage())),
-          ),
-        ],
-      ),
-      body: ListenableBuilder(
-        listenable: store,
-        builder: (context, _) {
-          if (store.items.isEmpty) {
-            return EmptyState(
-              Icons.video_library_outlined,
-              'Add a folder or some files and your movies and shows appear here.',
-              action: FilledButton.icon(
-                onPressed: () => openBrowser(context),
-                icon: const Icon(Icons.create_new_folder_outlined),
-                label: const Text('Add videos'),
-              ),
-            );
+        );
+      },
+    );
+  }
+}
+
+/// Every video in one place: search, sort, select many, act on them.
+class AllVideosPage extends StatefulWidget {
+  const AllVideosPage({super.key});
+  @override
+  State<AllVideosPage> createState() => _AllVideosPageState();
+}
+
+class _AllVideosPageState extends State<AllVideosPage> {
+  final sel = <String>{};
+  String q = '';
+  bool searching = false;
+  int sort = 0; // 0 name, 1 recently added, 2 recently watched, 3 size
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) {
+        final words = q.toLowerCase().split(' ').where((w) => w.isNotEmpty).toList();
+        final list = store.visible.where((i) {
+          if (words.isEmpty) return true;
+          final t = '${i.name} ${i.detail} ${p.basename(i.path)}'.toLowerCase();
+          return words.every(t.contains);
+        }).toList();
+        list.sort((a, b) {
+          switch (sort) {
+            case 1:
+              return b.added.compareTo(a.added);
+            case 2:
+              return store.lastPlayed(b.path).compareTo(store.lastPlayed(a.path));
+            case 3:
+              return b.size.compareTo(a.size);
+            default:
+              final c = naturalCompare(a.name, b.name);
+              if (c != 0) return c;
+              return (a.isEpisode && b.isEpisode) ? Store.compareEpisodes(a, b) : naturalCompare(a.path, b.path);
           }
-          final cont = store.continueWatching();
-          final next = store.nextUp();
-          final recent = store.recent();
-          return ListView(padding: const EdgeInsets.only(bottom: 16), children: [
-            if (cont.isNotEmpty)
-              Shelf('Continue watching', [for (final i in cont) itemTile(context, i)]),
-            if (next.isNotEmpty)
-              Shelf('Next up', [for (final i in next) itemTile(context, i)]),
-            if (recent.isNotEmpty)
-              Shelf('Recently added', [for (final i in recent) itemTile(context, i)]),
-          ]);
-        },
-      ),
+        });
+        sel.removeWhere((x) => !store.byPath.containsKey(x));
+        final selecting = sel.isNotEmpty;
+        final tiles = [for (final i in list) itemTile(context, i, subtitle: i.isEpisode ? i.detail : fmtSize(i.size))];
+        return PopScope(
+          canPop: !selecting,
+          onPopInvokedWithResult: (_, __) {
+            if (selecting) setState(sel.clear);
+          },
+          child: Scaffold(
+            appBar: selecting
+                ? selectionBar(context, sel,
+                    clear: () => setState(sel.clear),
+                    selectAll: () => setState(() => sel.addAll(list.map((i) => i.path))))
+                : AppBar(
+                    title: searching
+                        ? TextField(
+                            autofocus: true,
+                            decoration: const InputDecoration(hintText: 'Search files', border: InputBorder.none),
+                            onChanged: (v) => setState(() => q = v.trim()),
+                          )
+                        : Text('All videos (${list.length})'),
+                    actions: [
+                      IconButton(
+                        icon: Icon(searching ? Icons.close : Icons.search),
+                        onPressed: () => setState(() {
+                          searching = !searching;
+                          if (!searching) q = '';
+                        }),
+                      ),
+                      PopupMenuButton<int>(
+                        icon: const Icon(Icons.sort),
+                        onSelected: (v) => setState(() => sort = v),
+                        itemBuilder: (_) => [
+                          for (final e in {0: 'Name', 1: 'Recently added', 2: 'Recently watched', 3: 'Size'}.entries)
+                            CheckedPopupMenuItem(value: e.key, checked: sort == e.key, child: Text(e.value)),
+                        ],
+                      ),
+                      const LayoutButton(),
+                    ],
+                  ),
+            body: tiles.isEmpty
+                ? const EmptyState(Icons.video_library_outlined, 'No videos.')
+                : TilesView(
+                    tiles: tiles,
+                    selected: sel,
+                    onSelect: (id) => setState(() => sel.contains(id) ? sel.remove(id) : sel.add(id)),
+                  ),
+          ),
+        );
+      },
     );
   }
 }

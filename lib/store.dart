@@ -347,6 +347,59 @@ class Store extends ChangeNotifier {
     _dirty();
   }
 
+  /// Renames a video file on disk and moves all its data along. Returns an
+  /// error message, or null on success.
+  String? renameFile(String oldPath, String newBase) {
+    if (newBase.contains(RegExp(r'[\\/:*?"<>|]'))) return 'A name can\'t contain \\ / : * ? " < > |';
+    final newPath = p.join(p.dirname(oldPath), '$newBase${p.extension(oldPath)}');
+    if (File(newPath).existsSync()) return 'A file with that name already exists';
+    try {
+      File(oldPath).renameSync(newPath);
+    } catch (_) {
+      return 'Could not rename the file';
+    }
+    // subtitles with the same name move too
+    try {
+      final oldBase = p.basenameWithoutExtension(oldPath);
+      for (final f in Directory(p.dirname(oldPath)).listSync().whereType<File>()) {
+        final b = p.basename(f.path);
+        if (b.startsWith('$oldBase.') && subExts.contains(p.extension(b).toLowerCase().replaceFirst('.', ''))) {
+          f.renameSync(p.join(p.dirname(oldPath), newBase + b.substring(oldBase.length)));
+        }
+      }
+    } catch (_) {}
+    final i = items.indexWhere((x) => x.path == oldPath);
+    if (i >= 0) {
+      final o = items[i];
+      items[i] = buildItem(newPath, o.size, o.added);
+    }
+    void move<T>(Map<String, T> m) {
+      final v = m.remove(oldPath);
+      if (v != null) m[newPath] = v;
+    }
+
+    move(progress);
+    move(durs);
+    move(marks);
+    final tp = trackPrefs.remove('file:$oldPath');
+    if (tp != null) trackPrefs['file:$newPath'] = tp;
+    void swap(List<String> l) {
+      final j = l.indexOf(oldPath);
+      if (j >= 0) l[j] = newPath;
+    }
+
+    swap(files);
+    swap(queue);
+    for (final c in colls) {
+      swap(c.items);
+    }
+    if (hidden.remove(oldPath)) hidden.add(newPath);
+    _index();
+    touch();
+    if (i >= 0) thumbs.want(items[i]);
+    return null;
+  }
+
   /// Deletes the video files from the phone. Returns how many failed.
   int deleteFiles(Iterable<String> paths) {
     var failed = 0;

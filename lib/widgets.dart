@@ -353,7 +353,9 @@ class LayoutButton extends StatelessWidget {
 class Shelf extends StatelessWidget {
   final String title;
   final List<TileData> tiles;
-  const Shelf(this.title, this.tiles, {super.key});
+  final Set<String> selected;
+  final void Function(String id)? onSelect;
+  const Shelf(this.title, this.tiles, {super.key, this.selected = const {}, this.onSelect});
 
   @override
   Widget build(BuildContext context) {
@@ -373,8 +375,15 @@ class Shelf extends StatelessWidget {
             width: 200,
             child: MediaCard(
               tiles[i],
-              onTap: tiles[i].onTap,
+              selected: selected.contains(tiles[i].id),
+              onTap: selected.isNotEmpty && onSelect != null
+                  ? () => onSelect!(tiles[i].id)
+                  : tiles[i].onTap,
               onLong: () {
+                if (onSelect != null) {
+                  onSelect!(tiles[i].id);
+                  return;
+                }
                 final it = tiles[i].art;
                 if (it != null) itemSheet(c, it);
               },
@@ -661,6 +670,20 @@ Future<void> itemSheet(BuildContext c, Item i) {
             },
           ),
           ListTile(
+            leading: const Icon(Icons.drive_file_rename_outline),
+            title: const Text('Rename file'),
+            onTap: () async {
+              Navigator.pop(ctx);
+              final base = p.basenameWithoutExtension(i.path);
+              final n = await askName(c, 'Rename file', initial: base);
+              if (n == null || n.trim().isEmpty || n.trim() == base) return;
+              final err = store.renameFile(i.path, n.trim());
+              if (c.mounted && err != null) {
+                ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text(err)));
+              }
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.image_outlined),
             title: const Text('Regenerate thumbnail'),
             onTap: () {
@@ -687,5 +710,50 @@ Future<void> itemSheet(BuildContext c, Item i) {
         ]),
       ),
     ),
+  );
+}
+
+
+/// App bar shown while videos are selected (Home, All videos).
+PreferredSizeWidget selectionBar(BuildContext c, Set<String> sel,
+    {required VoidCallback clear, VoidCallback? selectAll}) {
+  final paths = sel.toList();
+  return AppBar(
+    leading: IconButton(icon: const Icon(Icons.close), onPressed: clear),
+    title: Text('${sel.length} selected'),
+    actions: [
+      if (selectAll != null)
+        IconButton(tooltip: 'Select all', icon: const Icon(Icons.select_all), onPressed: selectAll),
+      IconButton(
+        tooltip: 'Add to queue',
+        icon: const Icon(Icons.queue_play_next),
+        onPressed: () {
+          store.addToQueue(paths);
+          clear();
+          ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text('Added ${paths.length} to queue')));
+        },
+      ),
+      IconButton(
+        tooltip: 'Watched / unwatched',
+        icon: const Icon(Icons.check_circle_outline),
+        onPressed: () {
+          final allDone = paths.every((x) => store.prog(x)?.watched == true);
+          store.markMany(paths, !allDone);
+          clear();
+        },
+      ),
+      IconButton(
+        tooltip: 'Delete from device',
+        icon: const Icon(Icons.delete_outline),
+        onPressed: () async {
+          if (await confirmDelete(c, paths)) clear();
+        },
+      ),
+      IconButton(
+        tooltip: 'More',
+        icon: const Icon(Icons.more_vert),
+        onPressed: () => bulkSheet(c, paths, done: clear),
+      ),
+    ],
   );
 }
